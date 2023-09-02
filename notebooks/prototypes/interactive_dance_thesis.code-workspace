@@ -1,0 +1,11 @@
+{
+	"folders": [
+		{
+			"name": "interactive_dance_thesis",
+			"path": "../.."
+		}
+	],
+	"settings": {
+		"python.analysis.typeCheckingMode": "basic"
+	}
+}
