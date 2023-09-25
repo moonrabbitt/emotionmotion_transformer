@@ -4,8 +4,9 @@ __pycache__/
 *$py.class
 *.ini
 *.mp4
-
-
+*.MOV
+notebook.ipynb
+models/
 # C extensions
 *.so
 
