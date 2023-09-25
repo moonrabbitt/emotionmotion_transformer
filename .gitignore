@@ -4,7 +4,8 @@ __pycache__/
 *$py.class
 *.ini
 *.mp4
-
+*.mov
+*.MOV
 
 # C extensions
 *.so
