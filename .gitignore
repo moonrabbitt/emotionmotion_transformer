@@ -7,6 +7,7 @@ __pycache__/
 *.MOV
 notebook.ipynb
 models/
+checkpoints/
 # C extensions
 *.so
 
