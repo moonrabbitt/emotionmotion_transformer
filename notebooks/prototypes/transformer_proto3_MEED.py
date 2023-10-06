@@ -43,7 +43,7 @@ def interpolate(coord_prev, coord_next):
     
     Parameters:
     - coord_prev (float): Coordinate of the previous frame.
-    - coord_next (float): Coordinate of the next frame.
+    - coord_next (float): Coordinate of the next frame.  
 
     Returns:
     - (float): Interpolated coordinate.
@@ -543,10 +543,10 @@ if __name__ == "__main__":
     BATCH_SIZE = 4 # how many independent sequences will we process in parallel? - every forward and backward pass in transformer
     BLOCK_SIZE = 16 # what is the maximum context length for predictions? 
     LEARNING_RATE = 0.0001
-    EPOCHS = 1000
-    FRAMES_GENERATE = 100
+    EPOCHS = 500000
+    FRAMES_GENERATE = 500
     TRAIN = True
-    EVAL_EVERY = 100
+    EVAL_EVERY = 5000
     CHECKPOINT_PATH = "checkpoints/MEED_checkpoint.pth"
     
     # ---------------------------------
