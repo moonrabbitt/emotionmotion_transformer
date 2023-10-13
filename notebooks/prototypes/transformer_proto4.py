@@ -294,10 +294,8 @@ def validate_emotion_consistency(x, y):
     all_equal = torch.all(emotion_equal)
 
     is_consistent = all_equal.item()
-    
-    if is_consistent:
-        print("Emotions are consistent between x and y.")
-    else:
+        
+    if not is_consistent:
         raise Exception("Emotions are inconsistent between x and y.")
 
 
@@ -398,7 +396,7 @@ class FeedForward(nn.Module):
 class Block(nn.Module):
     """Transformer Block: communication followed by computation - basically self attention heads and feedforward"""
 
-    def __init__(self, n_emb, n_heads):
+    def __init__(self, n_emb, n_heads,dropout=0.2):
         
         super().__init__()
         head_size = n_emb//n_heads
@@ -415,7 +413,7 @@ class Block(nn.Module):
     
 class MotionModel(nn.Module):
     
-    def __init__(self, input_dim, output_dim, hidden_dim=256, n_layers=8):
+    def __init__(self, input_dim, output_dim, hidden_dim=256, n_layers=8 , dropout=0.2):
         super().__init__()
         self.hidden_dim = hidden_dim
         self.fc1 = nn.Linear(input_dim, hidden_dim, bias=False, device=device) 
@@ -430,7 +428,7 @@ class MotionModel(nn.Module):
        
     
         
-    def forward(self, inputs, targets=None ,mask=None):
+    def forward(self, inputs, targets=None , l1_lambda = 0.001, mask=None,):
         B,T,C = inputs.shape # batch size, time, context
         
         # fc1 transforms input into hidden dimension
@@ -451,7 +449,11 @@ class MotionModel(nn.Module):
         
         else:
             B,T,C = inputs.shape # batch size, time, context
-            loss = F.mse_loss(logits, targets) # mse picked cause continous data
+            # You can adjust this value based on your needs
+            l1_norm = sum(p.abs().sum() for p in m.parameters())  # Calculate L1 norm for all model parameters
+            loss = F.mse_loss(logits, targets) + l1_lambda * l1_norm
+
+            # loss = F.mse_loss(logits, targets) # mse picked cause continous data
             # adding mask to ignore 0,0 occlusions (-inf)
             # if mask is None:
             #     mask = (inputs != float('-inf')).all(dim=-1).float() 
@@ -769,8 +771,8 @@ if __name__ == "__main__":
     max_x, min_x, normalised_x = normalize_values_2D(x_list)
     max_y, min_y, normalised_y = normalize_values_2D(y_list)
    
-    ckp_frames = create_kp_frames(normalised_x, normalised_y)  # 1D tensor array of 50 numbers (x,y,x,y --> 25 keypoints)
-    data = add_emotions_to_frames(ckp_frames, emotion_labels_to_vectors(emotions_labels))
+    kp_frames = create_kp_frames(normalised_x, normalised_y)  # 1D tensor array of 50 numbers (x,y,x,y --> 25 keypoints)
+    data = add_emotions_to_frames(kp_frames, emotion_labels_to_vectors(emotions_labels))
     train_data, val_data = stratified_split(data, test_size=0.1)
   
     
@@ -778,22 +780,25 @@ if __name__ == "__main__":
     
     torch.manual_seed(1337)
     BATCH_SIZE = 4 # how many independent sequences will we process in parallel? - every forward and backward pass in transformer
-    BLOCK_SIZE = 10 # what is the maximum context length for predictions? 
+    BLOCK_SIZE = 16 # what is the maximum context length for predictions? 
+    DROPOUT = 0.3
     LEARNING_RATE = 0.0001
     EPOCHS = 500000
     FRAMES_GENERATE = 500
-    TRAIN = False
+    TRAIN = True
     EVAL_EVERY = 5000
     CHECKPOINT_PATH = "checkpoints/proto4_checkpoint.pth"
+    L1_LAMBDA = 0.001
+    L2_REG = 1e-5
     global train_seed
     
     # ---------------------------------
     
     # create model
     frame_dim = 57 # how many numbers are in each frame? - 50 kps xy + 7 emotion encodings
-    m = MotionModel(input_dim=frame_dim, output_dim=frame_dim)
+    m = MotionModel(input_dim=frame_dim, output_dim=frame_dim, hidden_dim=512, n_layers=8, dropout=DROPOUT)
     m = m.to(device)
-    optimizer = torch.optim.Adam(m.parameters(), lr=LEARNING_RATE)
+    optimizer = torch.optim.Adam(m.parameters(), lr=LEARNING_RATE, weight_decay=L2_REG)  # weight_decay=1e-5 L2 regularization
     
     # train
     if TRAIN:
@@ -812,7 +817,7 @@ if __name__ == "__main__":
             # validate emotions are consistent
             validate_emotion_consistency(xb, yb)
             # evaluate loss
-            logits, loss = m(xb,yb, mask)
+            logits, loss = m(xb,yb,l1_lambda=L1_LAMBDA)
             optimizer.zero_grad(set_to_none=True)
             loss.backward()
             optimizer.step()
