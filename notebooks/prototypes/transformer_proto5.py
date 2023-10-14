@@ -111,8 +111,15 @@ def preprocess_data(files: List[str]) -> dict:
             x_list.append(x)
             y_list.append(y)
             conf_list.append(conf)
+    
+    if validate_interpolation(x_list,y_list,files) == False:
+        raise Exception('Interpolation not successful')
 
-    return {"x": x_list, "y": y_list, "confidence": conf_list, "emotions": emotions}
+    print("Generating deltas...")
+    dx_list = delta_frames(x_list)
+    dy_list = delta_frames(y_list)
+
+    return {"x": dx_list, "y": dy_list, "confidence": conf_list, "emotions": emotions}
 
 def validate_interpolation(x_list,y_list,files):
     print("Validating interpolation...")
@@ -127,8 +134,21 @@ def validate_interpolation(x_list,y_list,files):
         print("No errors found!")
         
     return err == 0
-                
 
+def delta_frames(vid_list):
+    """Find the difference between each keypoint position in each frame (deltax deltay) for each video
+    use at point where x_list is [video[all x for all kps]]
+    output: [first coordinate, delta coordinate, delta coordinate, ...]"""
+    
+    delta_vids=[]
+    for video in tqdm(vid_list):
+        delta_frames = []
+        delta_frames.append(video[0])
+        for i in range(len(video)-1):
+            delta_frames.append(np.subtract(video[i+1], video[i]))
+        delta_vids.append(delta_frames)
+    
+    return delta_vids
 
 # Prepare data for training------------------------------------
 def normalize_values_2D(frames):
@@ -551,9 +571,9 @@ def save_checkpoint(model, optimizer, epoch, loss, checkpoint_path):
     # checkpoint_path = os.path.join(checkpoint_dir, f"MEED_checkpoint_{run_seed}.pth")
     
     
-    if not os.path.exists(checkpoint_path):
-        print('Creating checkpoints directory...')
-        os.makedirs(checkpoint_path)
+    # if not os.path.exists(checkpoint_path):
+    #     print('Creating checkpoints directory...')
+    #     os.makedirs(checkpoint_path)
     
     print(f"Saving model checkpoint to {checkpoint_path}")
     state = {'model': model.state_dict(),
@@ -650,8 +670,16 @@ def visualise_skeleton(all_frames, max_x, max_y, max_frames=500, save=False, sav
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
         out = cv2.VideoWriter(out_path, fourcc, 10.0, (canvas_size[1], canvas_size[0]))
 
-    # Iterate over every frame
+    # Initialize a variable to store the keypoints of the previous frame
+    previous_frame_data = None
+    
+    # Iterate over all frames, first frame is absolute keypoints, rest are relative to previous frame
     for frame_data in all_frames[:max_frames]:
+        
+        # If previous_frame_data is None, this is the first frame and we use absolute positions
+        # Otherwise, add the delta to the previous frame's keypoints to get the new keypoints
+        if previous_frame_data is not None:
+            frame_data = [prev + delta for prev, delta in zip(previous_frame_data, frame_data)]
         
         
         canvas_copy = canvas.copy()
@@ -787,9 +815,6 @@ if __name__ == "__main__":
     y_list = processed_data['y']
     conf_list = processed_data['confidence']
     emotions_labels = processed_data['emotions']
-
-    if validate_interpolation(processed_data['x'],processed_data['y'],files) == False:
-        raise Exception('Interpolation not successful')
     
     # prepare data for training
     global max_x, min_x, max_y, min_y
@@ -809,20 +834,19 @@ if __name__ == "__main__":
     BLOCK_SIZE = 16 # what is the maximum context length for predictions? 
     DROPOUT = 0.3
     LEARNING_RATE = 0.0001
-    EPOCHS = 20000
+    EPOCHS = 1000
     FRAMES_GENERATE = 300
     TRAIN = True
-    EVAL_EVERY = 1000
-    CHECKPOINT_PATH = "checkpoints/proto4_checkpoint.pth"
+    EVAL_EVERY = 100
+    CHECKPOINT_PATH = "checkpoints/proto5_checkpoint.pth"
     L1_LAMBDA = None
-    L2_REG = 0.0
-    # L2_REG=0.0
+    L2_REG=0.0
     global train_seed
     
     # ---------------------------------
     
     # NOTES---------------------------------
-    notes = f"""Got rid of both L1 and L2, increasing dropout because model acting weird"""
+    notes = f"""Got rid of both L1 and L2, increasing dropout because model acting weird, this is now delta"""
     # ---------------------------------
     
     # create model
