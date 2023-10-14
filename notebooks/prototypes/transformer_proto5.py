@@ -115,11 +115,12 @@ def preprocess_data(files: List[str]) -> dict:
     if validate_interpolation(x_list,y_list,files) == False:
         raise Exception('Interpolation not successful')
 
+    # delta now
     print("Generating deltas...")
     dx_list = delta_frames(x_list)
     dy_list = delta_frames(y_list)
 
-    return {"x": dx_list, "y": dy_list, "confidence": conf_list, "emotions": emotions}
+    return {"x": x_list, "y": y_list,"dx": dx_list, "dy": dy_list, "confidence": conf_list, "emotions": emotions}
 
 def validate_interpolation(x_list,y_list,files):
     print("Validating interpolation...")
@@ -143,7 +144,8 @@ def delta_frames(vid_list):
     delta_vids=[]
     for video in tqdm(vid_list):
         delta_frames = []
-        delta_frames.append(video[0])
+        # no change in first frame because starting frame
+        delta_frames.append(0)
         for i in range(len(video)-1):
             delta_frames.append(np.subtract(video[i+1], video[i]))
         delta_vids.append(delta_frames)
@@ -272,6 +274,25 @@ def emotion_labels_to_vectors(emotion_labels):
     emotion_vectors = [label_to_vector[label] for label in emotion_labels]
     
     return emotion_vectors
+
+def emotion_to_encoding(emotion_label):
+    """
+    Convert an emotion label to its one-hot encoding.
+    
+    Parameters:
+    - emotion_label (str): The label of the emotion.
+    - emotion_labels (list of str): The list of all possible emotion labels.
+    
+    Returns:
+    - list of int: The one-hot encoding of the emotion label.
+    """
+    
+    emotion_labels = ['Anger', 'Disgust', 'Fear', 'Happiness', 'Neutral', 'Sad', 'Surprise']
+
+    encoding = [0] * len(emotion_labels)
+    encoding[emotion_labels.index(emotion_label)] = 1
+    return encoding
+
 
 def add_emotions_to_frames(kp_frames, emotion_vectors):
     # kp_frames is normalised
@@ -670,29 +691,40 @@ def visualise_skeleton(all_frames, max_x, max_y, max_frames=500, save=False, sav
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
         out = cv2.VideoWriter(out_path, fourcc, 10.0, (canvas_size[1], canvas_size[0]))
 
-    # Initialize a variable to store the keypoints of the previous frame
     previous_frame_data = None
     
     # Iterate over all frames, first frame is absolute keypoints, rest are relative to previous frame
-    for frame_data in all_frames[:max_frames]:
+    for i,frame_data in enumerate(all_frames[:max_frames]):
+        
+        
+        if i == 0:
+            emotion_vector = tuple(frame_data[-7:])
+            # Get emotion percentages and labels
+            emotion_percentages = [f"{int(e * 100)}% {label}" for e, label in zip(emotion_vector, emotion_labels) if e > 0]
+            # Get the index of the maximum emotion percentage.
+            max_emotion_index = np.argmax(emotion_vector)
+
+            # Get the label and percentage of the maximum emotion to get first frame
+            max_emotion_label = emotion_labels[max_emotion_index]
+            first_frame = get_random_frame(data, max_emotion_label)
+            previous_frame_data = first_frame
+            
         
         # If previous_frame_data is None, this is the first frame and we use absolute positions
         # Otherwise, add the delta to the previous frame's keypoints to get the new keypoints
         if previous_frame_data is not None:
             frame_data = [prev + delta for prev, delta in zip(previous_frame_data, frame_data)]
-        
+            previous_frame_data = frame_data
         
         canvas_copy = canvas.copy()
-
-        # Extract x and y coordinates
+         # Extract x and y coordinates
         x_coords = frame_data[0:50:2] 
         y_coords = frame_data[1:50:2]
         emotion_vector = tuple(frame_data[-7:])
         
-
         # Get emotion percentages and labels
         emotion_percentages = [f"{int(e * 100)}% {label}" for e, label in zip(emotion_vector, emotion_labels) if e > 0]
-
+ 
         xy_coords = list(zip(x_coords, y_coords))
         sane = sanity_check(xy_coords)
         # Plot keypoints on the canvas
@@ -740,6 +772,39 @@ def visualise_skeleton(all_frames, max_x, max_y, max_frames=500, save=False, sav
         out.release()
 
     cv2.destroyAllWindows()
+    
+def get_random_frame(data, emotion):
+    """
+    Get a random frame from a random video of the specified emotion.
+
+    Parameters:
+    - data: Nested list representing videos, frames, and features.
+    - emotion: Tuple representing the desired emotion in one-hot encoded format.
+
+    Returns:
+    - A random frame corresponding to the specified emotion or None if no such frame exists.
+    """
+    emotion = emotion_to_encoding(emotion)
+    # Find indices of videos with the specified emotion
+    matching_video_indices = [
+        video_idx 
+        for video_idx, video in enumerate(data) 
+        if tuple(video[0][-7:]) == emotion
+    ]
+    
+    # If no videos match the specified emotion, return None
+    if not matching_video_indices:
+        return None
+    
+    # Select a random video
+    selected_video_idx = random.choice(matching_video_indices)
+    selected_video = data[selected_video_idx]
+    
+    # Select a random frame
+    selected_frame = random.choice(selected_video)
+    
+    return selected_frame
+
 
     
 def sanity_check(keypoints):
@@ -756,7 +821,6 @@ def sanity_check(keypoints):
         return eye[1] < nose[1] and eye != (0, 0) and nose != (0, 0)
 
     def check_ear_above_neck(ear, neck, eye):
-
         return (ear[1] < neck[1] or (ear[1] >= neck[1] and eye[1] >= neck[1])) and ear != (0, 0) and neck != (0, 0) and eye != (0, 0)
     
     # Define a list of check functions for each keypoint.
@@ -813,17 +877,23 @@ if __name__ == "__main__":
     
     x_list = processed_data['x']
     y_list = processed_data['y']
+    dx_list = processed_data['dx']
+    dy_list = processed_data['dy']
     conf_list = processed_data['confidence']
     emotions_labels = processed_data['emotions']
     
-    # prepare data for training
+    # prepare data for training - deltas from now on
     global max_x, min_x, max_y, min_y
     
-    max_x, min_x, normalised_x = normalize_values_2D(x_list)
-    max_y, min_y, normalised_y = normalize_values_2D(y_list)
+    max_dx, min_dx, normalised_dx = normalize_values_2D(dx_list)
+    max_dy, min_dy, normalised_dy = normalize_values_2D(dy_list)
+    max_x, min_x, normalised_x = normalize_values_2D(dx_list)
+    max_y, min_y, normalised_y = normalize_values_2D(dy_list)
    
-    kp_frames = create_kp_frames(normalised_x, normalised_y)  # 1D tensor array of 50 numbers (x,y,x,y --> 25 keypoints)
-    data = add_emotions_to_frames(kp_frames, emotion_labels_to_vectors(emotions_labels))
+    dkp_frames = create_kp_frames(normalised_dx, normalised_dy)  # 1D tensor array of 50 numbers (x,y,x,y --> 25 keypoints)
+    kp_frames = create_kp_frames(x_list, y_list)  # 1D tensor array of 50 numbers (x,y,x,y --> 25 keypoints) - for getting first frames/validation
+    
+    data = add_emotions_to_frames(dkp_frames, emotion_labels_to_vectors(emotions_labels))
     train_data, val_data = stratified_split(data, test_size=0.1)
   
     
@@ -914,7 +984,7 @@ if __name__ == "__main__":
     xb,yb,mask = get_batch('val',BLOCK_SIZE,BATCH_SIZE)
 
     generated = m.generate(xb, FRAMES_GENERATE)
-    unnorm_out = unnormalise_list_2D(generated, max_x, min_x, max_y, min_y)
+    unnorm_out = unnormalise_list_2D(generated, max_dx, min_dx, max_dy, min_dy)
     
     # visualise and save
     for batch in unnorm_out:
