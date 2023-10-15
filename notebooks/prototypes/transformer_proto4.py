@@ -809,7 +809,7 @@ if __name__ == "__main__":
     BLOCK_SIZE = 16 # what is the maximum context length for predictions? 
     DROPOUT = 0.3
     LEARNING_RATE = 0.0001
-    EPOCHS = 20000
+    EPOCHS = 300000
     FRAMES_GENERATE = 300
     TRAIN = True
     EVAL_EVERY = 1000

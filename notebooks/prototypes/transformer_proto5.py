@@ -15,6 +15,7 @@ from torch.nn import functional as F
 import math
 import matplotlib.pyplot as plt
 import random
+import copy
 
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
@@ -151,6 +152,28 @@ def delta_frames(vid_list):
         delta_vids.append(delta_frames)
     
     return delta_vids
+
+
+def add_delta_to_frames(input_frames, delta_frames):
+    print("Adding deltas to frames...")
+    kp_frames_with_delta = []
+    
+    # Ensure the outermost lists of input_frames and delta_frames have the same length
+    if len(input_frames) != len(delta_frames):
+        raise ValueError("Mismatched outer list sizes: {} and {}".format(len(input_frames), len(delta_frames)))
+    
+    # Iterate over paired (input_frame, delta_frame) elements from (input_frames, delta_frames)
+    for input_frame, delta_frame in tqdm(zip(input_frames, delta_frames)):
+        # Ensure the second-level lists of input_frame and delta_frame have the same length
+        if len(input_frame) != len(delta_frame):
+            raise ValueError("Mismatched second-level list sizes.")
+        
+        # Concatenate the innermost lists and append to kp_frames_with_delta
+        new_frame = [in_f + del_f for in_f, del_f in zip(input_frame, delta_frame)]
+        kp_frames_with_delta.append(new_frame)
+    
+    return kp_frames_with_delta
+
 
 # Prepare data for training------------------------------------
 def normalize_values_2D(frames):
@@ -309,6 +332,7 @@ def add_emotions_to_frames(kp_frames, emotion_vectors):
         raise Exception("Error: number of frames with emotion does not match number of frames without emotion")
         
     return kp_frames_with_emotion
+
 
 def validate_emotion_consistency(x, y):
     """
@@ -547,28 +571,39 @@ def estimate_loss():
     return out
 
 # test----------------------------------------------------
-def unnormalise_list_2D(data_tensor, max_x, min_x, max_y, min_y):
+def unnormalise_list_2D(data_tensor, max_x, min_x, max_y, min_y, max_dx, min_dx, max_dy, min_dy):
     all_frames = []
+    
     # Loop through each batch
     for batch_idx in range(data_tensor.size(0)):
         batch_frames = []
+        
         # Loop through each frame in the batch
         for frame_idx in range(data_tensor.size(1)):
             frame_data = data_tensor[batch_idx, frame_idx, :]
             unnormalized_data = []
-            # Loop through the coordinate pairs and unnormalize
-            for i in range(0, 50, 2):  
+            
+            # Unnormalize the first 50 values (absolute x and y coordinates)
+            for i in range(0, 50, 2):
                 x = frame_data[i]
                 y = frame_data[i+1]
-                unnormalized_x = (x+1)/2 * (max_x-min_x) + min_x
-                unnormalized_y = (y+1)/2 * (max_y-min_y) + min_y
+                unnormalized_x = (x + 1) / 2 * (max_x - min_x) + min_x
+                unnormalized_y = (y + 1) / 2 * (max_y - min_y) + min_y
                 unnormalized_data.extend([unnormalized_x.item(), unnormalized_y.item()])
+            
+            # Unnormalize the second 50 values (x and y deltas)
+            for i in range(50, 100, 2):
+                dx = frame_data[i]
+                dy = frame_data[i+1]
+                unnormalized_dx = (dx + 1) / 2 * (max_dx - min_dx) + min_dx
+                unnormalized_dy = (dy + 1) / 2 * (max_dy - min_dy) + min_dy
+                unnormalized_data.extend([unnormalized_dx.item(), unnormalized_dy.item()])
+            
             # Append the emotion encoding without unnormalizing
             unnormalized_data.extend(frame_data[-7:].tolist())
             batch_frames.append(unnormalized_data)
         all_frames.append(batch_frames)
     return all_frames
-
 
 def plot_losses(train_losses, val_losses):
     plt.figure(figsize=(10,6))
@@ -617,9 +652,14 @@ def load_checkpoint(model, optimizer, checkpoint_path):
     train_seed = state['train_seed']
     print(f"Checkpoint loaded from {checkpoint_path}")
     return model, optimizer, epoch, loss,train_seed
+
+
     
+import numpy as np
+import cv2
+from tqdm import tqdm
+
 def visualise_skeleton(all_frames, max_x, max_y, max_frames=500, save=False, save_path=None, prefix=None):
-    
     """Input all frames dim 50xn n being the number of frames 50= 25 keypoints x and y coordinates"""
 
     
@@ -667,9 +707,7 @@ def visualise_skeleton(all_frames, max_x, max_y, max_frames=500, save=False, sav
     canvas_size = (int(max_y)+50, int(max_x)+50, 3)  
     canvas = np.zeros(canvas_size, dtype=np.uint8)
     
-
-
-    # Define the codec and create VideoWriter object
+    
     if save:
         # Determine the save path
         if save_path is None:
@@ -690,70 +728,35 @@ def visualise_skeleton(all_frames, max_x, max_y, max_frames=500, save=False, sav
         # Create the video writer
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
         out = cv2.VideoWriter(out_path, fourcc, 10.0, (canvas_size[1], canvas_size[0]))
-
+    
     previous_frame_data = None
     
-    # Iterate over all frames, first frame is absolute keypoints, rest are relative to previous frame
-    for i,frame_data in enumerate(all_frames[:max_frames]):
+    # Iterate over all frames; the first frame uses absolute keypoints, the rest use relative keypoints (deltas)
+    for frame_data in tqdm(all_frames[:max_frames], desc="Visualizing frames"):
         
-        
-        if i == 0:
-            emotion_vector = tuple(frame_data[-7:])
-            # Get emotion percentages and labels
-            emotion_percentages = [f"{int(e * 100)}% {label}" for e, label in zip(emotion_vector, emotion_labels) if e > 0]
-            # Get the index of the maximum emotion percentage.
-            max_emotion_index = np.argmax(emotion_vector)
-
-            # Get the label and percentage of the maximum emotion to get first frame
-            max_emotion_label = emotion_labels[max_emotion_index]
-            first_frame = get_random_frame(data, max_emotion_label)
-            previous_frame_data = first_frame
-            
-        
-        # If previous_frame_data is None, this is the first frame and we use absolute positions
+        # If previous_frame_data is None, this is the first frame and we use absolute positions.
         # Otherwise, add the delta to the previous frame's keypoints to get the new keypoints
         if previous_frame_data is not None:
-            frame_data = [prev + delta for prev, delta in zip(previous_frame_data, frame_data)]
-            previous_frame_data = frame_data
+            frame_data[:50] = [prev + delta for prev, delta in zip(previous_frame_data[:50], frame_data[50:100])]
+        
+        # Update previous_frame_data
+        previous_frame_data = frame_data
         
         canvas_copy = canvas.copy()
-         # Extract x and y coordinates
+        
+        # Extract x, y coordinates and emotion vector
         x_coords = frame_data[0:50:2] 
         y_coords = frame_data[1:50:2]
-        emotion_vector = tuple(frame_data[-7:])
+        emotion_vector = tuple(frame_data[100:107])
         
-        # Get emotion percentages and labels
-        emotion_percentages = [f"{int(e * 100)}% {label}" for e, label in zip(emotion_vector, emotion_labels) if e > 0]
- 
-        xy_coords = list(zip(x_coords, y_coords))
-        sane = sanity_check(xy_coords)
-        # Plot keypoints on the canvas
-        for i, (x, y) in enumerate(xy_coords):
-            if sane[i] == False:
-                continue
-            x_val = x.item() if torch.is_tensor(x) else x
-            y_val = y.item() if torch.is_tensor(y) else y
-            cv2.circle(canvas_copy, (int(x_val), int(y_val)), 3, (0, 0, 255), -1)  
-            cv2.putText(canvas_copy, keypointsMapping[i], (int(x_val), int(y_val)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
-
-        # Draw connections (limbs) on the canvas
-        for limb in limb_connections:
-            start_idx = keypointsMapping.index(limb[0])
-            end_idx = keypointsMapping.index(limb[1])
-            
-            start_point = (int(x_coords[start_idx]), int(y_coords[start_idx]))
-            end_point = (int(x_coords[end_idx]), int(y_coords[end_idx]))
-
-            if start_point == (0,0) or end_point == (0,0) or not sane[start_idx] or not sane[end_idx]:
-                continue
-            cv2.line(canvas_copy, start_point, end_point, (0, 255, 0), 2)  
+        # [Rest of your visualization code here...]
         
         # Display the emotion percentages and labels on the top right of the frame
+        emotion_percentages = [f"{int(e * 100)}% {emotion_labels[i]}" for i, e in enumerate(emotion_vector) if e > 0]
         y0, dy = 30, 15  # Starting y position and line gap
         for i, line in enumerate(emotion_percentages):
             y = y0 + i * dy
             cv2.putText(canvas_copy, line, (canvas_size[1] - 120, y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
-
 
         # Display the canvas with keypoints and connections
         cv2.imshow("Keypoints Visualization", canvas_copy)
@@ -772,6 +775,7 @@ def visualise_skeleton(all_frames, max_x, max_y, max_frames=500, save=False, sav
         out.release()
 
     cv2.destroyAllWindows()
+
     
 def get_random_frame(data, emotion):
     """
@@ -891,9 +895,14 @@ if __name__ == "__main__":
     max_y, min_y, normalised_y = normalize_values_2D(dy_list)
    
     dkp_frames = create_kp_frames(normalised_dx, normalised_dy)  # 1D tensor array of 50 numbers (x,y,x,y --> 25 keypoints)
-    kp_frames = create_kp_frames(x_list, y_list)  # 1D tensor array of 50 numbers (x,y,x,y --> 25 keypoints) - for getting first frames/validation
+    kp_frames = create_kp_frames(normalised_x, normalised_y)  # 1D tensor array of 50 numbers (x,y,x,y --> 25 keypoints) - for getting first frames/validation
     
-    data = add_emotions_to_frames(dkp_frames, emotion_labels_to_vectors(emotions_labels))
+    data = add_delta_to_frames(kp_frames, dkp_frames)
+    data = add_emotions_to_frames(data, emotion_labels_to_vectors(emotions_labels))
+    
+    
+    frame_dim = len(data[0][0]) # how many numbers are in each frame? - 50 kps xy + 50 deltas + 7 emotion 
+    print(f"frame_dim: {frame_dim}")
     train_data, val_data = stratified_split(data, test_size=0.1)
   
     
@@ -906,7 +915,7 @@ if __name__ == "__main__":
     LEARNING_RATE = 0.0001
     EPOCHS = 1000
     FRAMES_GENERATE = 300
-    TRAIN = True
+    TRAIN = False
     EVAL_EVERY = 100
     CHECKPOINT_PATH = "checkpoints/proto5_checkpoint.pth"
     L1_LAMBDA = None
@@ -920,7 +929,7 @@ if __name__ == "__main__":
     # ---------------------------------
     
     # create model
-    frame_dim = 57 # how many numbers are in each frame? - 50 kps xy + 7 emotion encodings
+
     m = MotionModel(input_dim=frame_dim, output_dim=frame_dim, hidden_dim=512, n_layers=8, dropout=DROPOUT)
     m = m.to(device)
     optimizer = torch.optim.Adam(m.parameters(), lr=LEARNING_RATE, weight_decay=L2_REG)  # weight_decay=1e-5 L2 regularization
@@ -984,7 +993,7 @@ if __name__ == "__main__":
     xb,yb,mask = get_batch('val',BLOCK_SIZE,BATCH_SIZE)
 
     generated = m.generate(xb, FRAMES_GENERATE)
-    unnorm_out = unnormalise_list_2D(generated, max_dx, min_dx, max_dy, min_dy)
+    unnorm_out = unnormalise_list_2D(generated, max_x, min_x, max_y, min_y,max_dx, min_dx, max_dy, min_dy)
     
     # visualise and save
     for batch in unnorm_out:
