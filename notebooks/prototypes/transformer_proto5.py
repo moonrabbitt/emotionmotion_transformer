@@ -36,6 +36,29 @@ os.chdir(root_dir)
 # Check if the current working directory was set correctly
 print(os.getcwd())
 
+# HYPERPARAMETERS------------------
+
+torch.manual_seed(1337)
+BATCH_SIZE = 4 # how many independent sequences will we process in parallel? - every forward and backward pass in transformer
+BLOCK_SIZE = 16 # what is the maximum context length for predictions? 
+DROPOUT = 0.3
+LEARNING_RATE = 0.0001
+EPOCHS = 5000
+FRAMES_GENERATE = 300
+TRAIN = False
+EVAL_EVERY = 100
+CHECKPOINT_PATH = "checkpoints/proto5_checkpoint.pth"
+L1_LAMBDA = None
+L2_REG=0.0
+global train_seed
+    
+
+# NOTES---------------------------------
+notes = f"""Got rid of both L1 and L2, increasing dropout because model acting weird, this is now delta + coord. 
+Delta is between next frame and current frame. So current frame is previous coord+previous delta. Last frame's delta is 0. 
+Hyperparams: {BATCH_SIZE} batch size, {BLOCK_SIZE} block size, {DROPOUT} dropout, {LEARNING_RATE} learning rate, {EPOCHS} epochs, {FRAMES_GENERATE} frames generated, {TRAIN} train, {EVAL_EVERY} eval every, {CHECKPOINT_PATH} checkpoint path, {L1_LAMBDA} L1 lambda, {L2_REG} L2 reg"""
+# ---------------------------------
+
 # Functions--------------------------------------------------
 # Load and preprocess data------------------------------------
 
@@ -116,10 +139,10 @@ def preprocess_data(files: List[str]) -> dict:
     if validate_interpolation(x_list,y_list,files) == False:
         raise Exception('Interpolation not successful')
 
-    # delta now
-    print("Generating deltas...")
+    # create deltas
     dx_list = delta_frames(x_list)
     dy_list = delta_frames(y_list)
+
 
     return {"x": x_list, "y": y_list,"dx": dx_list, "dy": dy_list, "confidence": conf_list, "emotions": emotions}
 
@@ -137,18 +160,21 @@ def validate_interpolation(x_list,y_list,files):
         
     return err == 0
 
-def delta_frames(vid_list):
+def delta_frames(vid_frames):
     """Find the difference between each keypoint position in each frame (deltax deltay) for each video
     use at point where x_list is [video[all x for all kps]]
     output: [first coordinate, delta coordinate, delta coordinate, ...]"""
     
     delta_vids=[]
-    for video in tqdm(vid_list):
+    for v, video in tqdm(enumerate(vid_frames)):
         delta_frames = []
-        # no change in first frame because starting frame
-        delta_frames.append(0)
+        if len(video) % 25 != 0:
+            raise Exception(f"Video {v} frames not divisible by 25 length: {len(video)}")
+        
         for i in range(len(video)-1):
+            # delta is differenece between next frame and current frame because predictive model
             delta_frames.append(np.subtract(video[i+1], video[i]))
+        delta_frames.append(0) 
         delta_vids.append(delta_frames)
     
     return delta_vids
@@ -176,7 +202,7 @@ def add_delta_to_frames(input_frames, delta_frames):
 
 
 # Prepare data for training------------------------------------
-def normalize_values_2D(frames):
+def normalize_values_2D(frames, max_val = None,min_val=None):
     """
     Takes in a list of lists (frames), returns max and min values and normalized list
     
@@ -190,8 +216,13 @@ def normalize_values_2D(frames):
     """
     # Flatten the data to find global min and max
     flat_data = [kp for frame in frames for kp in frame]
-    max_val = max(flat_data)
-    min_val = min(flat_data)
+    if max_val is None:
+        max_val = max(flat_data)
+        
+    if min_val is None:
+        min_val = min(flat_data)
+    
+
     
     # Normalize data
     normalized_frames = [
@@ -250,7 +281,7 @@ def stratified_split(data, test_size=0.1):
 
     return train_data, val_data
 
-def get_batch(split, block_size, batch_size, device=device):
+def get_batch(split, block_size, batch_size, train_data ,val_data, device=device):
     data = train_data if split == 'train' else val_data
     
     # Choose random videos
@@ -481,13 +512,13 @@ class Block(nn.Module):
     
 class MotionModel(nn.Module):
     
-    def __init__(self, input_dim, output_dim, hidden_dim=256, n_layers=8 , dropout=0.2):
+    def __init__(self, input_dim, output_dim, blocksize = 16, hidden_dim=256, n_layers=8 , dropout=0.2, device = device):
         super().__init__()
         self.hidden_dim = hidden_dim
         self.fc1 = nn.Linear(input_dim, hidden_dim, bias=False, device=device) 
         self.fc2 = nn.Linear(hidden_dim, output_dim, bias=False,device=device)
         # PROBLEM
-        self.positional_encoding = positional_encoding(seq_len=BLOCK_SIZE, d_model=hidden_dim).to(device)
+        self.positional_encoding = positional_encoding(seq_len=blocksize, d_model=hidden_dim).to(device)
         layers = [Block(n_emb=hidden_dim, n_heads=4) for _ in range(n_layers)]
         layers.append(nn.LayerNorm(hidden_dim, device=device))
         # layers.append(nn.InstanceNorm1d(hidden_dim, device=device))
@@ -563,7 +594,7 @@ def estimate_loss():
     for split in ['train', 'val']:
         losses = torch.zeros(eval_iters)
         for k in tqdm(range(eval_iters), desc=f"Evaluating Loss", unit="batch"):
-            xb, yb, _ = get_batch(split, BLOCK_SIZE, BATCH_SIZE)
+            xb, yb, _ = get_batch(split, BLOCK_SIZE, BATCH_SIZE, train_data, val_data)
             _, loss = m(xb, yb)
             losses[k] = loss.item()
         out[split] = losses.mean()
@@ -605,21 +636,32 @@ def unnormalise_list_2D(data_tensor, max_x, min_x, max_y, min_y, max_dx, min_dx,
         all_frames.append(batch_frames)
     return all_frames
 
-def plot_losses(train_losses, val_losses):
-    plt.figure(figsize=(10,6))
-    plt.plot(train_losses, label='Training Loss')
-    plt.plot(val_losses, label='Validation Loss')
-    plt.xlabel('Steps (in thousands)')
+def plot_losses(train_losses, val_losses, EPOCHS, spacing):
+    plt.figure(figsize=(12,6))  # Increased width
+    
+    # Calculate x-axis values for the epochs
+    x_ticks = list(range(spacing, spacing * len(train_losses) + 1, spacing))
+    x_labels = [str(i) for i in x_ticks]
+    
+    plt.plot(x_ticks, train_losses, label='Training Loss')  # Use x_ticks for x-values
+    plt.plot(x_ticks, val_losses, label='Validation Loss')  # Use x_ticks for x-values
+    plt.xlabel('Epochs')
     plt.ylabel('Loss')
-    plt.legend()
-    plt.title('Training and Validation Loss')
+    plt.xticks(x_ticks, x_labels)  # Set x-axis ticks and labels
+    plt.legend(loc='upper right')  # Explicitly specify the legend location
+    plt.title(f'Training and Validation Loss')
+    
+    plt.tight_layout()  # Ensure elements fit within the figure
     
     # Use the run seed in the filename
     plot_path = os.path.join("D:/Interactive Dance Thesis Tests/TransformerResults/losses", f"loss_plot_{train_seed}.png")
     
     # Save the plot
     plt.savefig(plot_path)
+    plt.close()  # Close the plot to free up memory
     print(f"Plot saved to {plot_path}")
+
+
 
 def save_checkpoint(model, optimizer, epoch, loss, checkpoint_path):
     """Save the model checkpoint."""
@@ -659,7 +701,7 @@ import numpy as np
 import cv2
 from tqdm import tqdm
 
-def visualise_skeleton(all_frames, max_x, max_y, max_frames=500, save=False, save_path=None, prefix=None):
+def visualise_skeleton(all_frames, max_x, max_y, max_frames=500, save=False, save_path=None, prefix=None, train_seed=None , delta=False):
     """Input all frames dim 50xn n being the number of frames 50= 25 keypoints x and y coordinates"""
 
     
@@ -736,11 +778,12 @@ def visualise_skeleton(all_frames, max_x, max_y, max_frames=500, save=False, sav
         
         # If previous_frame_data is None, this is the first frame and we use absolute positions.
         # Otherwise, add the delta to the previous frame's keypoints to get the new keypoints
-        if previous_frame_data is not None:
-            frame_data[:50] = [prev + delta for prev, delta in zip(previous_frame_data[:50], frame_data[50:100])]
+        if delta ==True:
+            if previous_frame_data is not None:
+                frame_data[:50] = [prev + delta for prev, delta in zip(previous_frame_data[:50], frame_data[50:100])]
         
-        # Update previous_frame_data
-        previous_frame_data = frame_data
+            # Update previous_frame_data
+            previous_frame_data = copy.deepcopy(frame_data)
         
         canvas_copy = canvas.copy()
         
@@ -749,7 +792,28 @@ def visualise_skeleton(all_frames, max_x, max_y, max_frames=500, save=False, sav
         y_coords = frame_data[1:50:2]
         emotion_vector = tuple(frame_data[100:107])
         
-        # [Rest of your visualization code here...]
+        xy_coords = list(zip(x_coords, y_coords))
+        sane = sanity_check(xy_coords)
+        # Plot keypoints on the canvas
+        for i, (x, y) in enumerate(xy_coords):
+            if sane[i] == False:
+                continue
+            x_val = x.item() if torch.is_tensor(x) else x
+            y_val = y.item() if torch.is_tensor(y) else y
+            cv2.circle(canvas_copy, (int(x_val), int(y_val)), 3, (0, 0, 255), -1)  
+            cv2.putText(canvas_copy, keypointsMapping[i], (int(x_val), int(y_val)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
+
+        # Draw connections (limbs) on the canvas
+        for limb in limb_connections:
+            start_idx = keypointsMapping.index(limb[0])
+            end_idx = keypointsMapping.index(limb[1])
+            
+            start_point = (int(x_coords[start_idx]), int(y_coords[start_idx]))
+            end_point = (int(x_coords[end_idx]), int(y_coords[end_idx]))
+
+            if start_point == (0,0) or end_point == (0,0) or not sane[start_idx] or not sane[end_idx]:
+                continue
+            cv2.line(canvas_copy, start_point, end_point, (0, 255, 0), 2)  
         
         # Display the emotion percentages and labels on the top right of the frame
         emotion_percentages = [f"{int(e * 100)}% {emotion_labels[i]}" for i, e in enumerate(emotion_vector) if e > 0]
@@ -868,6 +932,15 @@ def write_notes(notes = None):
             f.write(notes)
         print(f"Notes saved to {out_path}")
 
+def validate_length(list_3d,length,message=None):
+    print(f"Validating length of {message}")
+    for i in range(len(list_3d)):
+        for j in range(len(list_3d[i])):
+            if len(list_3d[i][j]) != length:
+                raise Exception(f"length of {i},{j} is {len(list_3d[i][j])}")
+                return False
+    return True
+
 if __name__ == "__main__":
     
     # load and preprocess data
@@ -889,48 +962,37 @@ if __name__ == "__main__":
     # prepare data for training - deltas from now on
     global max_x, min_x, max_y, min_y
     
-    max_dx, min_dx, normalised_dx = normalize_values_2D(dx_list)
-    max_dy, min_dy, normalised_dy = normalize_values_2D(dy_list)
-    max_x, min_x, normalised_x = normalize_values_2D(dx_list)
-    max_y, min_y, normalised_y = normalize_values_2D(dy_list)
-   
+    
+    max_x, min_x, normalised_x = normalize_values_2D(x_list)
+    max_y, min_y, normalised_y = normalize_values_2D(y_list)
+    max_dx, min_dx, normalised_dx = normalize_values_2D(dx_list,max_x,min_x)
+    max_dy, min_dy, normalised_dy = normalize_values_2D(dy_list,max_y,min_y)
+    
+
     dkp_frames = create_kp_frames(normalised_dx, normalised_dy)  # 1D tensor array of 50 numbers (x,y,x,y --> 25 keypoints)
     kp_frames = create_kp_frames(normalised_x, normalised_y)  # 1D tensor array of 50 numbers (x,y,x,y --> 25 keypoints) - for getting first frames/validation
     
+    validate_length(dkp_frames,50,message="dkp_frames")
+    validate_length(kp_frames,50,message="kp_frames")
+    
     data = add_delta_to_frames(kp_frames, dkp_frames)
+    validate_length(data,100,message="data after delta")
     data = add_emotions_to_frames(data, emotion_labels_to_vectors(emotions_labels))
+    validate_length(data,107,message="data after emotions")
     
     
     frame_dim = len(data[0][0]) # how many numbers are in each frame? - 50 kps xy + 50 deltas + 7 emotion 
     print(f"frame_dim: {frame_dim}")
+    
+    global train_data, val_data
     train_data, val_data = stratified_split(data, test_size=0.1)
   
     
-    # HYPERPARAMETERS------------------
-    
-    torch.manual_seed(1337)
-    BATCH_SIZE = 4 # how many independent sequences will we process in parallel? - every forward and backward pass in transformer
-    BLOCK_SIZE = 16 # what is the maximum context length for predictions? 
-    DROPOUT = 0.3
-    LEARNING_RATE = 0.0001
-    EPOCHS = 1000
-    FRAMES_GENERATE = 300
-    TRAIN = False
-    EVAL_EVERY = 100
-    CHECKPOINT_PATH = "checkpoints/proto5_checkpoint.pth"
-    L1_LAMBDA = None
-    L2_REG=0.0
-    global train_seed
-    
-    # ---------------------------------
-    
-    # NOTES---------------------------------
-    notes = f"""Got rid of both L1 and L2, increasing dropout because model acting weird, this is now delta"""
-    # ---------------------------------
+ 
     
     # create model
 
-    m = MotionModel(input_dim=frame_dim, output_dim=frame_dim, hidden_dim=512, n_layers=8, dropout=DROPOUT)
+    m = MotionModel(input_dim=frame_dim, output_dim=frame_dim, blocksize=BLOCK_SIZE, hidden_dim=512, n_layers=8, dropout=DROPOUT)
     m = m.to(device)
     optimizer = torch.optim.Adam(m.parameters(), lr=LEARNING_RATE, weight_decay=L2_REG)  # weight_decay=1e-5 L2 regularization
     
@@ -947,7 +1009,7 @@ if __name__ == "__main__":
         
         for epoch in tqdm(range(EPOCHS), desc="Training", unit="epoch"):
             # get sample batch of data
-            xb,yb,mask = get_batch('train',BLOCK_SIZE,BATCH_SIZE)
+            xb,yb,mask = get_batch('train',BLOCK_SIZE,BATCH_SIZE, train_data,val_data)
             # validate emotions are consistent
             validate_emotion_consistency(xb, yb)
             # evaluate loss
@@ -959,7 +1021,7 @@ if __name__ == "__main__":
             if epoch % EVAL_EVERY == 0:
                 losses = estimate_loss()
                 print(f"\nTrain loss: {losses['train']:.6f} val loss: {losses['val']:.6f}")
-                
+                notes += f"""\nTrain loss: {losses['train']:.6f} val loss: {losses['val']:.6f}"""
                 if (epoch != 0):
                     # Store the losses for plotting
                     train_losses.append(losses['train'])
@@ -980,7 +1042,7 @@ if __name__ == "__main__":
                         save_checkpoint(model=m, optimizer=optimizer, epoch=EPOCHS, loss=val_losses[-1], checkpoint_path=CHECKPOINT_PATH)
                         print(f'Model {train_seed} saved!')
         # After the training loop, plot the losses
-        plot_losses(train_losses, val_losses)
+        plot_losses(train_losses, val_losses, EPOCHS, EVAL_EVERY)
         
     else:
         # Load the model
@@ -990,14 +1052,15 @@ if __name__ == "__main__":
     
     # Generate a sequence
     print(f'Generating sequence of {FRAMES_GENERATE} frames...')
-    xb,yb,mask = get_batch('val',BLOCK_SIZE,BATCH_SIZE)
+    xb,yb,mask = get_batch('val',BLOCK_SIZE,BATCH_SIZE, train_data,val_data)
 
     generated = m.generate(xb, FRAMES_GENERATE)
-    unnorm_out = unnormalise_list_2D(generated, max_x, min_x, max_y, min_y,max_dx, min_dx, max_dy, min_dy)
+    # unnorm_out = unnormalise_list_2D(generated, max_x, min_x, max_y, min_y,max_dx, min_dx, max_dy, min_dy)
+    unnorm_out = unnormalise_list_2D(generated, max_x, min_x, max_y, min_y,max_x, min_x, max_y, min_y)
     
     # visualise and save
     for batch in unnorm_out:
-        visualise_skeleton(batch, max_x, max_y, max_frames=FRAMES_GENERATE,save = True,save_path=None,prefix=f'adam_{EPOCHS}')
+        visualise_skeleton(batch, max_x, max_y, max_frames=FRAMES_GENERATE,save = True,save_path=None,prefix=f'adam_{EPOCHS}',train_seed=train_seed)
     
     if TRAIN:
         write_notes(notes)

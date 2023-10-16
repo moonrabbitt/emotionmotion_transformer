@@ -661,10 +661,7 @@ def visualise_skeleton(all_frames, max_x, max_y, max_frames=500, save=False, sav
         y_coords = frame_data[1:50:2]
         emotion_vector = tuple(frame_data[-7:])
         
-
-        # Get emotion percentages and labels
-        emotion_percentages = [f"{int(e * 100)}% {label}" for e, label in zip(emotion_vector, emotion_labels) if e > 0]
-
+        
         xy_coords = list(zip(x_coords, y_coords))
         sane = sanity_check(xy_coords)
         # Plot keypoints on the canvas
@@ -687,6 +684,9 @@ def visualise_skeleton(all_frames, max_x, max_y, max_frames=500, save=False, sav
             if start_point == (0,0) or end_point == (0,0) or not sane[start_idx] or not sane[end_idx]:
                 continue
             cv2.line(canvas_copy, start_point, end_point, (0, 255, 0), 2)  
+
+        # Get emotion percentages and labels
+        emotion_percentages = [f"{int(e * 100)}% {label}" for e, label in zip(emotion_vector, emotion_labels) if e > 0]
         
         # Display the emotion percentages and labels on the top right of the frame
         y0, dy = 30, 15  # Starting y position and line gap
