@@ -43,9 +43,9 @@ BATCH_SIZE = 4 # how many independent sequences will we process in parallel? - e
 BLOCK_SIZE = 16 # what is the maximum context length for predictions? 
 DROPOUT = 0.3
 LEARNING_RATE = 0.0001
-EPOCHS = 5000
+EPOCHS = 1000
 FRAMES_GENERATE = 300
-TRAIN = False
+TRAIN = True
 EVAL_EVERY = 100
 CHECKPOINT_PATH = "checkpoints/proto5_checkpoint.pth"
 L1_LAMBDA = None
@@ -160,21 +160,25 @@ def validate_interpolation(x_list,y_list,files):
         
     return err == 0
 
+
 def delta_frames(vid_frames):
-    """Find the difference between each keypoint position in each frame (deltax deltay) for each video
+    """Find the difference between each frame (deltax deltay for all keypoints) for each video.
     use at point where x_list is [video[all x for all kps]]
-    output: [first coordinate, delta coordinate, delta coordinate, ...]"""
+    output: [first frame, delta frame, delta frame, ...]"""
     
-    delta_vids=[]
+    delta_vids = []
     for v, video in tqdm(enumerate(vid_frames)):
         delta_frames = []
         if len(video) % 25 != 0:
             raise Exception(f"Video {v} frames not divisible by 25 length: {len(video)}")
         
-        for i in range(len(video)-1):
-            # delta is differenece between next frame and current frame because predictive model
-            delta_frames.append(np.subtract(video[i+1], video[i]))
-        delta_frames.append(0) 
+        # Iterate by skipping 25 keypoints (one full frame) at a time
+        for i in range(0, len(video) - 25, 25):
+            # Append the difference between the next 25 frames and the current 25 frames
+            delta_frames.extend(np.subtract(video[i+25:i+50], video[i:i+25]))
+        
+        # Append zeros for the last frame
+        delta_frames.extend([0] * 25)  
         delta_vids.append(delta_frames)
     
     return delta_vids
