@@ -1,4 +1,4 @@
-# Changed model to with delta model
+# Prototype 6 - adding penalties to increase movement
 # set up environment
 import glob
 import os 
@@ -43,18 +43,19 @@ BATCH_SIZE = 8 # how many independent sequences will we process in parallel? - e
 BLOCK_SIZE = 16 # what is the maximum context length for predictions? 
 DROPOUT = 0.3
 LEARNING_RATE = 0.0001
-EPOCHS = 500000
+EPOCHS = 300000
 FRAMES_GENERATE = 300
 TRAIN = True
 EVAL_EVERY = 1000
-CHECKPOINT_PATH = "checkpoints/proto5_checkpoint.pth"
+CHECKPOINT_PATH = "checkpoints/proto6_checkpoint.pth"
 L1_LAMBDA = None
 L2_REG=0.0
 global train_seed
     
 
 # NOTES---------------------------------
-notes = f"""Got rid of both L1 and L2, increasing dropout because model acting weird, this is now delta + coord. 
+notes = f"""Peanlising deltas with 1/delta. So encorage model to move more.
+Got rid of both L1 and L2, increasing dropout because model acting weird, this is now delta + coord. 
 Delta is between next frame and current frame. So current frame is previous coord+previous delta. Last frame's delta is 0. 
 Hyperparams: {BATCH_SIZE} batch size, {BLOCK_SIZE} block size, {DROPOUT} dropout, {LEARNING_RATE} learning rate, {EPOCHS} epochs, {FRAMES_GENERATE} frames generated, {TRAIN} train, {EVAL_EVERY} eval every, {CHECKPOINT_PATH} checkpoint path, {L1_LAMBDA} L1 lambda, {L2_REG} L2 reg"""
 # ---------------------------------
@@ -556,8 +557,25 @@ class MotionModel(nn.Module):
             # You can adjust this value based on your needs
            
             if L1_LAMBDA is None:
-                loss = F.mse_loss(logits, targets) # mse picked cause continous data
-                
+
+                # current MSE loss calculation
+                mse_loss = F.mse_loss(logits, targets)
+
+                # Extract the deltas from logits and targets
+                logits_deltas = logits[:, :, 50:100]
+                targets_deltas = targets[:, :, 50:100]
+
+                # Calculate the penalty term for the deltas
+                epsilon = 1e-6  # Small constant to avoid division by zero
+                penalty_term = (1 / (torch.abs(logits_deltas) + epsilon)).mean()
+
+                # Hyperparameter to balance the original MSE and the new penalty term
+                alpha = 0.01  # This value can be adjusted based on your needs
+
+                # Combine the MSE loss and the penalty term to get the modified loss
+                loss = mse_loss + alpha * penalty_term
+
+                                    
             else:
                 l1_norm = sum(p.abs().sum() for p in m.parameters())  # Calculate L1 norm for all model parameters
                 loss = F.mse_loss(logits, targets) + l1_lambda * l1_norm
@@ -1046,11 +1064,15 @@ if __name__ == "__main__":
                         print(f'Model {train_seed} saved!')
                         
         # After the training loop, save the final model
-        if val_losses[-1] < best_val_loss:
-                        print(f"-> Best model so far (val loss: {best_val_loss:.6f}), saving model...")
-                        best_val_loss = val_losses[-1]
-                        save_checkpoint(model=m, optimizer=optimizer, epoch=EPOCHS, loss=val_losses[-1], checkpoint_path=CHECKPOINT_PATH)
-                        print(f'Model {train_seed} saved!')
+        try:
+            if val_losses[-1] < best_val_loss:
+                print(f"-> Best model so far (val loss: {best_val_loss:.6f}), saving model...")
+                best_val_loss = val_losses[-1]
+                save_checkpoint(model=m, optimizer=optimizer, epoch=EPOCHS, loss=val_losses[-1], checkpoint_path=CHECKPOINT_PATH)
+                print(f'Model {train_seed} saved!')
+        
+        except IndexError:
+            print('No validation losses to save!')
         # After the training loop, plot the losses
         plot_losses(train_losses, val_losses, EPOCHS, EVAL_EVERY)
         
