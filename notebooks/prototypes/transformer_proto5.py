@@ -1,4 +1,4 @@
-# Changed model to delta model
+# Changed model to with delta model
 # set up environment
 import glob
 import os 
@@ -39,14 +39,14 @@ print(os.getcwd())
 # HYPERPARAMETERS------------------
 
 torch.manual_seed(1337)
-BATCH_SIZE = 4 # how many independent sequences will we process in parallel? - every forward and backward pass in transformer
+BATCH_SIZE = 8 # how many independent sequences will we process in parallel? - every forward and backward pass in transformer
 BLOCK_SIZE = 16 # what is the maximum context length for predictions? 
 DROPOUT = 0.3
 LEARNING_RATE = 0.0001
-EPOCHS = 1000
+EPOCHS = 500000
 FRAMES_GENERATE = 300
 TRAIN = True
-EVAL_EVERY = 100
+EVAL_EVERY = 1000
 CHECKPOINT_PATH = "checkpoints/proto5_checkpoint.pth"
 L1_LAMBDA = None
 L2_REG=0.0
@@ -1061,11 +1061,14 @@ if __name__ == "__main__":
     generated = m.generate(xb, FRAMES_GENERATE)
     # unnorm_out = unnormalise_list_2D(generated, max_x, min_x, max_y, min_y,max_dx, min_dx, max_dy, min_dy)
     unnorm_out = unnormalise_list_2D(generated, max_x, min_x, max_y, min_y,max_x, min_x, max_y, min_y)
+    # unnorm_out = unnormalise_list_2D(xb, max_x, min_x, max_y, min_y,max_x, min_x, max_y, min_y)
     
     # visualise and save
     for batch in unnorm_out:
-        visualise_skeleton(batch, max_x, max_y, max_frames=FRAMES_GENERATE,save = True,save_path=None,prefix=f'adam_{EPOCHS}',train_seed=train_seed)
-    
+        visualise_skeleton(batch, max_x, max_y, max_frames=FRAMES_GENERATE,save = True,save_path=None,prefix=f'adam_{EPOCHS}_coord',train_seed=train_seed,delta=False)
+        visualise_skeleton(batch, max_x, max_y, max_frames=FRAMES_GENERATE,save = True,save_path=None,prefix=f'adam_{EPOCHS}_delta',train_seed=train_seed,delta=True)
+
+
     if TRAIN:
         write_notes(notes)
      
