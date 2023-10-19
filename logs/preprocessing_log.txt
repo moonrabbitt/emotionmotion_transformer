@@ -1,0 +1,2 @@
+INFO:httpx:HTTP Request: GET https://www.youtube.com/embed/jfKfPfyJRdk "HTTP/2 200 OK"
+INFO:httpx:HTTP Request: GET https://www.youtube.com/embed/jfKfPfyJRdk "HTTP/2 200 OK"
