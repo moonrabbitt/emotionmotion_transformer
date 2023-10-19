@@ -415,6 +415,30 @@ def validate_emotion_consistency(x, y):
         
     if not is_consistent:
         raise Exception("Emotions are inconsistent between x and y.")
+    
+def get_video_by_emotion(data, specific_emotion):
+    """
+    Retrieve a single video of a specified emotion from the dataset.
+
+    Parameters:
+    - data (list): The entire dataset, assumed to be a list of videos.
+    - specific_emotion (str): The emotion label of the desired video.
+
+    Returns:
+    - list: A single video corresponding to the specified emotion.
+    """
+    # Convert the specific emotion to its encoding
+    specific_emotion_tuple = tuple(emotion_to_encoding(specific_emotion))
+
+    # Search the dataset for a video with the specified emotion - return as tensor
+    for video in data:
+        if tuple(video[0][-7:]) == specific_emotion_tuple:
+            return torch.tensor([video]).to(device).float()
+
+    # If no video with the specified emotion is found, return None
+    return None
+
+
 
 
 
@@ -753,7 +777,7 @@ import numpy as np
 import cv2
 from tqdm import tqdm
 
-def visualise_skeleton(all_frames, max_x, max_y, max_frames=500, save=False, save_path=None, prefix=None, train_seed=None , delta=False):
+def visualise_skeleton(all_frames, max_x, max_y, max_frames=500, save=False, save_path=None, prefix=None, train_seed=None , delta=False, destroy = True):
     """Input all frames dim 50xn n being the number of frames 50= 25 keypoints x and y coordinates"""
 
     
@@ -868,11 +892,14 @@ def visualise_skeleton(all_frames, max_x, max_y, max_frames=500, save=False, sav
             cv2.line(canvas_copy, start_point, end_point, (0, 255, 0), 2)  
         
         # Display the emotion percentages and labels on the top right of the frame
-        emotion_percentages = [f"{int(e * 100)}% {emotion_labels[i]}" for i, e in enumerate(emotion_vector) if e > 0]
+        
+        emotion_percentages = [f"{int(e * 100)}% {emotion_labels[i]}" for i, e in enumerate(emotion_vector) if round(e * 100) > 0]
+        
         y0, dy = 30, 15  # Starting y position and line gap
         for i, line in enumerate(emotion_percentages):
             y = y0 + i * dy
             cv2.putText(canvas_copy, line, (canvas_size[1] - 120, y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
+
 
         # Display the canvas with keypoints and connections
         cv2.imshow("Keypoints Visualization", canvas_copy)
@@ -890,7 +917,9 @@ def visualise_skeleton(all_frames, max_x, max_y, max_frames=500, save=False, sav
     if save:
         out.release()
 
-    cv2.destroyAllWindows()
+    if destroy:
+        # Close the visualization window
+        cv2.destroyAllWindows()
 
     
 def get_random_frame(data, emotion):
