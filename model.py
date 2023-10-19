@@ -16,6 +16,7 @@ import math
 import matplotlib.pyplot as plt
 import random
 import copy
+from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
@@ -42,7 +43,7 @@ torch.manual_seed(1337)
 BATCH_SIZE = 8 # how many independent sequences will we process in parallel? - every forward and backward pass in transformer
 BLOCK_SIZE = 16 # what is the maximum context length for predictions? 
 DROPOUT = 0.3
-LEARNING_RATE = 0.0001
+LEARNING_RATE = 0.0001 #Initial learning rate
 EPOCHS = 30000
 FRAMES_GENERATE = 300
 TRAIN = True
@@ -55,6 +56,9 @@ global train_seed
 
 # NOTES---------------------------------
 notes = f"""Penalising deltas --> use going to use same context length windows frame windows but maybe adjust to the same as context size?
+Penalty threshold 1.2 --> 20% above average delta of train data.
+
+Adding scheduler to reduce learning rate if loss doesn't improve for 3 eval sets
 
 # Calculate the cumulative movement over the entire sequence for each sample in the batch
 cumulative_deltas = logits_deltas.sum(dim=1)
@@ -709,7 +713,7 @@ def plot_losses(train_losses, val_losses, EPOCHS, spacing, max_ticks=10):
 
 
 
-def save_checkpoint(model, optimizer, epoch, loss, checkpoint_path):
+def save_checkpoint(model, optimizer, scheduler, epoch, loss, checkpoint_path):
     """Save the model checkpoint."""
     # Use the run seed in the filename
     # checkpoint_path = os.path.join(checkpoint_dir, f"MEED_checkpoint_{run_seed}.pth")
@@ -722,6 +726,7 @@ def save_checkpoint(model, optimizer, epoch, loss, checkpoint_path):
     print(f"Saving model checkpoint to {checkpoint_path}")
     state = {'model': model.state_dict(),
              'optimizer': optimizer.state_dict(),
+             'scheduler': scheduler.state_dict(),
              'epoch': epoch,
              'loss': loss,
              'train_seed' : train_seed}
@@ -729,20 +734,21 @@ def save_checkpoint(model, optimizer, epoch, loss, checkpoint_path):
     print(f"Checkpoint saved to {checkpoint_path}")
 
 
-def load_checkpoint(model, optimizer, checkpoint_path):
-    """Load the model checkpoint."""
+def load_checkpoint(model, optimizer,checkpoint_path, scheduler = None):
+    """Load the model checkpoint. - if no scheduler, pass None"""
     print('Loading checkpoint...')
     state = torch.load(checkpoint_path)
     model.load_state_dict(state['model'])
     optimizer.load_state_dict(state['optimizer'])
+    if scheduler is not None: #  for backwards compatability
+        scheduler.load_state_dict(state['scheduler'])
     epoch = state['epoch']
     loss = state['loss']
     train_seed = state['train_seed']
     print(f"Checkpoint loaded from {checkpoint_path}")
-    return model, optimizer, epoch, loss,train_seed
+    return model, optimizer, scheduler, epoch, loss,train_seed
 
 
-    
 import numpy as np
 import cv2
 from tqdm import tqdm
@@ -1067,7 +1073,7 @@ def compute_threshold(dataset):
     threshold = sum(cumulative_deltas_magnitude) / len(cumulative_deltas_magnitude)
 
     # Optionally, set the threshold slightly above the average
-    threshold_multiplier = 1.1  # Increase threshold by 10%
+    threshold_multiplier = 1.2  # Increase threshold by 10%
     threshold *= threshold_multiplier
 
     return threshold
@@ -1087,7 +1093,8 @@ if __name__ == "__main__":
     m = MotionModel(input_dim=frame_dim, output_dim=frame_dim, blocksize=BLOCK_SIZE, hidden_dim=512, n_layers=8, dropout=DROPOUT)
     m = m.to(device)
     optimizer = torch.optim.Adam(m.parameters(), lr=LEARNING_RATE, weight_decay=L2_REG)  # weight_decay=1e-5 L2 regularization
-    
+    scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=3, verbose=True)
+    #loss evaluated at every EVAL EVERY, so 2*EVAL_EVERY is scheduler's actual patience
     # train
     if TRAIN:
         # Generate a random seed
@@ -1108,12 +1115,20 @@ if __name__ == "__main__":
             logits, loss = m(xb,yb,l1_lambda=L1_LAMBDA)
             optimizer.zero_grad(set_to_none=True)
             loss.backward()
+            
+            # Clip gradients
+            nn.utils.clip_grad_norm_(m.parameters(), max_norm=1)
+
+            
             optimizer.step()
+            
+            
             
             if epoch % EVAL_EVERY == 0:
                 losses = estimate_loss()
+                scheduler.step(losses['val'])
                 print(f"\nTrain loss: {losses['train']:.6f} val loss: {losses['val']:.6f}")
-                notes += f"""\nTrain loss: {losses['train']:.6f} val loss: {losses['val']:.6f}"""
+                notes += f"""EPOCH:{epoch} \nTrain loss: {losses['train']:.6f} val loss: {losses['val']:.6f}"""
                 if (epoch != 0):
                     # Store the losses for plotting
                     train_losses.append(losses['train'])
@@ -1124,15 +1139,17 @@ if __name__ == "__main__":
                     if losses['val'] < best_val_loss:
                         print(f"-> Best model so far (val loss: {best_val_loss:.6f}), saving model...")
                         best_val_loss = losses['val']
-                        save_checkpoint(model=m, optimizer=optimizer, epoch=epoch, loss=loss, checkpoint_path=CHECKPOINT_PATH)
+                        save_checkpoint(model=m, optimizer=optimizer, scheduler=scheduler,epoch=epoch, loss=loss, checkpoint_path=CHECKPOINT_PATH)
                         print(f'Model {train_seed} saved!')
-                        
+            
+            
+            
         # After the training loop, save the final model
         try:
             if val_losses[-1] < best_val_loss:
                 print(f"-> Best model so far (val loss: {best_val_loss:.6f}), saving model...")
                 best_val_loss = val_losses[-1]
-                save_checkpoint(model=m, optimizer=optimizer, epoch=EPOCHS, loss=val_losses[-1], checkpoint_path=CHECKPOINT_PATH)
+                save_checkpoint(model=m, optimizer=optimizer, scheduler=scheduler, epoch=EPOCHS, loss=val_losses[-1], checkpoint_path=CHECKPOINT_PATH)
                 print(f'Model {train_seed} saved!')
         
         except IndexError:
@@ -1143,7 +1160,7 @@ if __name__ == "__main__":
     else:
         # Load the model
         print('Loading model...')
-        m, optimizer, epoch, loss, train_seed = load_checkpoint(m, optimizer, CHECKPOINT_PATH)
+        m, optimizer, scheduler, epoch, loss, train_seed = load_checkpoint(m, optimizer, CHECKPOINT_PATH,scheduler)
         print(f"Model {train_seed} loaded from {CHECKPOINT_PATH} (epoch {epoch}, loss {loss:.6f})")
     
     # Generate a sequence
