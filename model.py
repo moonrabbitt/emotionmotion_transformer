@@ -43,7 +43,7 @@ BATCH_SIZE = 8 # how many independent sequences will we process in parallel? - e
 BLOCK_SIZE = 16 # what is the maximum context length for predictions? 
 DROPOUT = 0.3
 LEARNING_RATE = 0.0001
-EPOCHS = 300000
+EPOCHS = 30000
 FRAMES_GENERATE = 300
 TRAIN = True
 EVAL_EVERY = 1000
@@ -54,7 +54,19 @@ global train_seed
     
 
 # NOTES---------------------------------
-notes = f"""Peanlising deltas with 1/delta. So encorage model to move more.
+notes = f"""Penalising deltas --> use going to use same context length windows frame windows but maybe adjust to the same as context size?
+
+# Calculate the cumulative movement over the entire sequence for each sample in the batch
+cumulative_deltas = logits_deltas.sum(dim=1)
+
+# Calculate the penalty for samples where cumulative movement is below the threshold
+penalty_mask = (cumulative_deltas < threshold).float()
+penalty = penalty_mask.mean()
+
+. So encorage model to move more. using threshold just above average delta of train data. maybe should move this to 
+entire dataset not just train data. 
+
+
 Got rid of both L1 and L2, increasing dropout because model acting weird, this is now delta + coord. 
 Delta is between next frame and current frame. So current frame is previous coord+previous delta. Last frame's delta is 0. 
 Hyperparams: {BATCH_SIZE} batch size, {BLOCK_SIZE} block size, {DROPOUT} dropout, {LEARNING_RATE} learning rate, {EPOCHS} epochs, {FRAMES_GENERATE} frames generated, {TRAIN} train, {EVAL_EVERY} eval every, {CHECKPOINT_PATH} checkpoint path, {L1_LAMBDA} L1 lambda, {L2_REG} L2 reg"""
@@ -558,22 +570,27 @@ class MotionModel(nn.Module):
            
             if L1_LAMBDA is None:
 
-                # current MSE loss calculation
+                
+                # Your current MSE loss calculation
                 mse_loss = F.mse_loss(logits, targets)
 
-                # Extract the deltas from logits and targets
-                logits_deltas = logits[:, :, 50:100]
-                targets_deltas = targets[:, :, 50:100]
+                # Extract the magnitude of the deltas from logits
+                logits_deltas_magnitude = torch.abs(logits[:, :, 50:100])
 
-                # Calculate the penalty term for the deltas
-                epsilon = 1e-6  # Small constant to avoid division by zero
-                penalty_term = (1 / (torch.abs(logits_deltas) + epsilon)).mean()
+                # Calculate the cumulative magnitude of the deltas over the entire sequence for each sample in the batch
+                cumulative_deltas_magnitude = logits_deltas_magnitude.sum(dim=1)
+
+                # Calculate the penalty for samples where the cumulative magnitude of deltas is below the threshold
+                penalty_mask = (cumulative_deltas_magnitude < threshold).float()
+                penalty = penalty_mask.mean()
 
                 # Hyperparameter to balance the original MSE and the new penalty term
                 alpha = 0.01  # This value can be adjusted based on your needs
 
                 # Combine the MSE loss and the penalty term to get the modified loss
-                loss = mse_loss + alpha * penalty_term
+                loss = mse_loss + alpha * penalty
+
+
 
                                     
             else:
@@ -658,30 +675,37 @@ def unnormalise_list_2D(data_tensor, max_x, min_x, max_y, min_y, max_dx, min_dx,
         all_frames.append(batch_frames)
     return all_frames
 
-def plot_losses(train_losses, val_losses, EPOCHS, spacing):
-    plt.figure(figsize=(12,6))  # Increased width
+def plot_losses(train_losses, val_losses, EPOCHS, spacing, max_ticks=10):
+    plt.figure(figsize=(12,6))
     
-    # Calculate x-axis values for the epochs
-    x_ticks = list(range(spacing, spacing * len(train_losses) + 1, spacing))
+    # Calculate x-axis values for the epochs based on the original spacing
+    x_values = list(range(spacing, spacing * len(train_losses) + 1, spacing))
+    
+    # Dynamically determine tick spacing based on total epochs and a maximum number of ticks
+    # Ensuring that tick_spacing is a multiple of the provided spacing
+    tick_spacing = max(spacing, (EPOCHS // max_ticks) // spacing * spacing)
+    
+    # Calculate x-axis tick values and labels based on dynamic tick spacing
+    x_ticks = list(range(tick_spacing, EPOCHS + 1, tick_spacing))
     x_labels = [str(i) for i in x_ticks]
     
-    plt.plot(x_ticks, train_losses, label='Training Loss')  # Use x_ticks for x-values
-    plt.plot(x_ticks, val_losses, label='Validation Loss')  # Use x_ticks for x-values
+    plt.plot(x_values, train_losses, label='Training Loss')  # Use x_values for x-values
+    plt.plot(x_values, val_losses, label='Validation Loss')  # Use x_values for x-values
     plt.xlabel('Epochs')
     plt.ylabel('Loss')
-    plt.xticks(x_ticks, x_labels)  # Set x-axis ticks and labels
+    plt.xticks(x_ticks, x_labels)  # Set x-axis ticks and labels based on dynamic tick spacing
     plt.legend(loc='upper right')  # Explicitly specify the legend location
     plt.title(f'Training and Validation Loss')
     
     plt.tight_layout()  # Ensure elements fit within the figure
     
-    # Use the run seed in the filename
+    # Use the train seed in the filename
     plot_path = os.path.join("D:/Interactive Dance Thesis Tests/TransformerResults/losses", f"loss_plot_{train_seed}.png")
     
     # Save the plot
     plt.savefig(plot_path)
-    plt.close()  # Close the plot to free up memory
-    print(f"Plot saved to {plot_path}")
+    plt.close()
+    return f"Plot saved to {plot_path}"
 
 
 
@@ -1009,15 +1033,55 @@ def prep_MEED_data():
     global train_data, val_data
     train_data, val_data = stratified_split(data, test_size=0.1)
     
+    global threshold
+    # calculate threshold, maybe change this to entire data instead of just train
+    threshold = compute_threshold(data)
+
+    
+    
     MEED= (train_data,val_data,frame_dim,max_x,min_x,max_y,min_y,max_dx,min_dx,max_dy,min_dy)
  
     return MEED
+
+def compute_threshold(dataset):
+    """
+    Compute the threshold for the magnitude of cumulative deltas based on the entire dataset.
+
+    Parameters:
+    - dataset (torch.Tensor): The dataset with shape [num_samples, sequence_length, feature_dim].
+
+    Returns:
+    - float: The computed threshold.
+    """
+
+    # Flatten the dataset to 2D structure
+    flattened_dataset = [sample for batch in dataset for sample in batch]
+
+    # Extract the deltas from the dataset and compute their magnitude
+    deltas_magnitude = [[abs(x) for x in sample[50:100]] for sample in flattened_dataset]
+
+    # Compute the cumulative magnitude of deltas over the entire sequence for each sample
+    cumulative_deltas_magnitude = [sum(sample) for sample in deltas_magnitude]
+
+    # Calculate the average cumulative magnitude of deltas across the entire dataset
+    threshold = sum(cumulative_deltas_magnitude) / len(cumulative_deltas_magnitude)
+
+    # Optionally, set the threshold slightly above the average
+    threshold_multiplier = 1.1  # Increase threshold by 10%
+    threshold *= threshold_multiplier
+
+    return threshold
+
+
+
     
 if __name__ == "__main__":
     
     # Preparing MEED data for model
     MEED= prep_MEED_data()
     train_data,val_data,frame_dim,max_x,min_x,max_y,min_y,max_dx,min_dx,max_dy,min_dy = MEED
+    
+    
     
     # create model
     m = MotionModel(input_dim=frame_dim, output_dim=frame_dim, blocksize=BLOCK_SIZE, hidden_dim=512, n_layers=8, dropout=DROPOUT)
