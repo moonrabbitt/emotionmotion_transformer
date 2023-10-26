@@ -25,7 +25,7 @@ for handler in logger.handlers[:]:
     handler.close()
     logger.removeHandler(handler)
 
-logging.basicConfig(filename= f"preprocessing_log.txt", level=logging.INFO, filemode='w')
+logging.basicConfig(filename= f"logs\\preprocessing_log.txt", level=logging.INFO, filemode='w')
 # logging clear file
 logger = logging.getLogger()
 
@@ -40,14 +40,14 @@ print(os.getcwd())
 
 torch.manual_seed(1337)
 BATCH_SIZE = 8 # how many independent sequences will we process in parallel? - every forward and backward pass in transformer
-BLOCK_SIZE = 16 # what is the maximum context length for predictions? 
+BLOCK_SIZE = 3 # what is the maximum context length for predictions? 
 DROPOUT = 0.3
 LEARNING_RATE = 0.0001
 EPOCHS = 500000
 FRAMES_GENERATE = 300
 TRAIN = True
 EVAL_EVERY = 1000
-CHECKPOINT_PATH = "checkpoints/proto5_checkpoint.pth"
+CHECKPOINT_PATH = "checkpoints/proto5_context3_checkpoint.pth"
 L1_LAMBDA = None
 L2_REG=0.0
 global train_seed

@@ -44,11 +44,11 @@ BATCH_SIZE = 8 # how many independent sequences will we process in parallel? - e
 BLOCK_SIZE = 16 # what is the maximum context length for predictions? 
 DROPOUT = 0.3
 LEARNING_RATE = 0.0001 #Initial learning rate
-EPOCHS = 30000
+EPOCHS = 100000
 FRAMES_GENERATE = 300
 TRAIN = True
 EVAL_EVERY = 1000
-CHECKPOINT_PATH = "checkpoints/proto6_checkpoint.pth"
+CHECKPOINT_PATH = "checkpoints/proto6_context5_checkpoint.pth"
 L1_LAMBDA = None
 L2_REG=0.0
 global train_seed
@@ -415,10 +415,11 @@ def validate_emotion_consistency(x, y):
         
     if not is_consistent:
         raise Exception("Emotions are inconsistent between x and y.")
-    
+import random
+
 def get_video_by_emotion(data, specific_emotion):
     """
-    Retrieve a single video of a specified emotion from the dataset.
+    Retrieve a random video of a specified emotion from the dataset.
 
     Parameters:
     - data (list): The entire dataset, assumed to be a list of videos.
@@ -430,13 +431,16 @@ def get_video_by_emotion(data, specific_emotion):
     # Convert the specific emotion to its encoding
     specific_emotion_tuple = tuple(emotion_to_encoding(specific_emotion))
 
-    # Search the dataset for a video with the specified emotion - return as tensor
-    for video in data:
-        if tuple(video[0][-7:]) == specific_emotion_tuple:
-            return torch.tensor([video]).to(device).float()
+    # Collect all videos with the specified emotion
+    matching_videos = [video for video in data if tuple(video[0][-7:]) == specific_emotion_tuple]
 
     # If no video with the specified emotion is found, return None
-    return None
+    if not matching_videos:
+        return None
+
+    # Randomly select one video from the list of matching videos and return as tensor
+    selected_video = random.choice(matching_videos)
+    return torch.tensor([selected_video]).to(device).float()
 
 
 
@@ -1157,7 +1161,7 @@ if __name__ == "__main__":
                 losses = estimate_loss()
                 scheduler.step(losses['val'])
                 print(f"\nTrain loss: {losses['train']:.6f} val loss: {losses['val']:.6f}")
-                notes += f"""EPOCH:{epoch} \nTrain loss: {losses['train']:.6f} val loss: {losses['val']:.6f}"""
+                notes += f"""\nEPOCH:{epoch} \nTrain loss: {losses['train']:.6f} val loss: {losses['val']:.6f}"""
                 if (epoch != 0):
                     # Store the losses for plotting
                     train_losses.append(losses['train'])
