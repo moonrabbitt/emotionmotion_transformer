@@ -17,6 +17,8 @@ import matplotlib.pyplot as plt
 import random
 import copy
 from torch.optim.lr_scheduler import ReduceLROnPlateau
+from data import *
+
 
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
@@ -48,14 +50,17 @@ EPOCHS = 100000
 FRAMES_GENERATE = 300
 TRAIN = True
 EVAL_EVERY = 1000
-CHECKPOINT_PATH = "checkpoints/proto6_context5_checkpoint.pth"
+CHECKPOINT_PATH = "checkpoints/proto6_context5_checkpoint_fine.pth"
 L1_LAMBDA = None
 L2_REG=0.0
+FINETUNE = False
 global train_seed
     
 
 # NOTES---------------------------------
-notes = f"""Penalising deltas --> use going to use same context length windows frame windows but maybe adjust to the same as context size?
+notes = f"""Adding dance data DBDance
+
+Penalising deltas --> use going to use same context length windows frame windows but maybe adjust to the same as context size?
 Penalty threshold 1.2 --> 20% above average delta of train data.
 
 Adding scheduler to reduce learning rate if loss doesn't improve for 3 eval sets
@@ -77,230 +82,7 @@ Hyperparams: {BATCH_SIZE} batch size, {BLOCK_SIZE} block size, {DROPOUT} dropout
 # ---------------------------------
 
 # Functions--------------------------------------------------
-# Load and preprocess data------------------------------------
 
-def interpolate(coord_prev, coord_next):
-    """
-    Linearly interpolate between two coordinates.
-    
-    Parameters:
-    - coord_prev (float): Coordinate of the previous frame.
-    - coord_next (float): Coordinate of the next frame.  
-
-    Returns:
-    - (float): Interpolated coordinate.
-    """
-    return (coord_prev + coord_next) / 2
-
-def preprocess_data(files: List[str]) -> dict:
-    """
-    Pre-process data by interpolating to avoid (0,0) keypoints.
-
-    Parameters:
-    - files (List[str]): List of file paths to process.
-
-    Returns:
-    - dict: Pre-processed data.
-    """
-    x_list=[]
-    y_list=[]
-    conf_list=[]
-    emotions = []
-    
-    for file in tqdm(files):
-        with open(file) as f:
-            data = json.load(f)
-            x = data['x']
-            y = data['y']
-            conf = data['confidence']
-            emotion_code = [file.split('_')[-2].split('\\')[0][3:-3]]
-            emotions.extend(emotion_code)
-            
-            if len(emotion_code) > 1:
-                print(emotion_code)
-            
-            for i in range(len(x)):
-                # Check if coordinate is (0,0)
-                if x[i] == 0 and y[i] == 0:
-                    # logger.info(f"Found (0,0) at index {i} in file {file}")
-                    # If first frame, copy from next frame
-                    if i == 0:
-                        j = i + 1
-                        # Find next non-(0,0) frame
-                        while x[j] == 0 and y[j] == 0:
-                            j += 1
-                        x[i] = x[j]
-                        y[i] = y[j]
-                    # If last frame, copy from previous frame
-                    elif i == len(x) - 1:
-                        x[i] = x[i-1]
-                        y[i] = y[i-1]
-                    # For a frame in the middle
-                    else:
-                        # Find the next non-(0,0) frame
-                        j = i + 1
-                        while j < len(x) and x[j] == 0 and y[j] == 0:
-                            j += 1
-                        # If no non-(0,0) frame found, use the previous frame, otherwise interpolate
-                        if j == len(x):
-                            x[i] = x[i-1]
-                            y[i] = y[i-1]
-                        else:
-                            x[i] = interpolate(x[i-1], x[j])
-                            y[i] = interpolate(y[i-1], y[j])
-            
-            x_list.append(x)
-            y_list.append(y)
-            conf_list.append(conf)
-    
-    if validate_interpolation(x_list,y_list,files) == False:
-        raise Exception('Interpolation not successful')
-
-    # create deltas
-    dx_list = delta_frames(x_list)
-    dy_list = delta_frames(y_list)
-
-
-    return {"x": x_list, "y": y_list,"dx": dx_list, "dy": dy_list, "confidence": conf_list, "emotions": emotions}
-
-def validate_interpolation(x_list,y_list,files):
-    print("Validating interpolation...")
-    err = 0
-    for i in range(len(x_list)):
-        for j in range(len(x_list[i])):
-            if x_list[i][j] == 0 and y_list[i][j] == 0:
-                print(f"Found (0,0) at index {j} in file {files[i]}")
-                err += 1
-        
-    if err == 0:
-        print("No errors found!")
-        
-    return err == 0
-
-
-def delta_frames(vid_frames):
-    """Find the difference between each frame (deltax deltay for all keypoints) for each video.
-    use at point where x_list is [video[all x for all kps]]
-    output: [first frame, delta frame, delta frame, ...]"""
-    
-    delta_vids = []
-    for v, video in tqdm(enumerate(vid_frames)):
-        delta_frames = []
-        if len(video) % 25 != 0:
-            raise Exception(f"Video {v} frames not divisible by 25 length: {len(video)}")
-        
-        # Iterate by skipping 25 keypoints (one full frame) at a time
-        for i in range(0, len(video) - 25, 25):
-            # Append the difference between the next 25 frames and the current 25 frames
-            delta_frames.extend(np.subtract(video[i+25:i+50], video[i:i+25]))
-        
-        # Append zeros for the last frame
-        delta_frames.extend([0] * 25)  
-        delta_vids.append(delta_frames)
-    
-    return delta_vids
-
-
-def add_delta_to_frames(input_frames, delta_frames):
-    print("Adding deltas to frames...")
-    kp_frames_with_delta = []
-    
-    # Ensure the outermost lists of input_frames and delta_frames have the same length
-    if len(input_frames) != len(delta_frames):
-        raise ValueError("Mismatched outer list sizes: {} and {}".format(len(input_frames), len(delta_frames)))
-    
-    # Iterate over paired (input_frame, delta_frame) elements from (input_frames, delta_frames)
-    for input_frame, delta_frame in tqdm(zip(input_frames, delta_frames)):
-        # Ensure the second-level lists of input_frame and delta_frame have the same length
-        if len(input_frame) != len(delta_frame):
-            raise ValueError("Mismatched second-level list sizes.")
-        
-        # Concatenate the innermost lists and append to kp_frames_with_delta
-        new_frame = [in_f + del_f for in_f, del_f in zip(input_frame, delta_frame)]
-        kp_frames_with_delta.append(new_frame)
-    
-    return kp_frames_with_delta
-
-
-# Prepare data for training------------------------------------
-def normalize_values_2D(frames, max_val = None,min_val=None):
-    """
-    Takes in a list of lists (frames), returns max and min values and normalized list
-    
-    Parameters:
-        frames: List of lists containing keypoints for each frame.
-    
-    Returns:
-        max_val: Maximum keypoint value across all frames.
-        min_val: Minimum keypoint value across all frames.
-        normalized_frames: Normalized keypoints for each frame.
-    """
-    # Flatten the data to find global min and max
-    flat_data = [kp for frame in frames for kp in frame]
-    if max_val is None:
-        max_val = max(flat_data)
-        
-    if min_val is None:
-        min_val = min(flat_data)
-    
-
-    
-    # Normalize data
-    normalized_frames = [
-        [2 * (kp - min_val) / (max_val - min_val) - 1 for kp in frame]
-        for frame in frames
-    ]
-    
-    return max_val, min_val, normalized_frames
-
-def create_kp_frames(normalised_x, normalised_y):
-    """Create 1D array of 50 numbers (x,y,x,y --> 25 keypoints) from 2D array for each frame for transformer input, returned as list of lists"""
-    
-    print("Creating keypoint frames...")
-    kp_frames = []
-    n_parts = 25
-
-    for i in tqdm(range(0, len(normalised_x))):
-        video_x = normalised_x[i]
-        video_y = normalised_y[i]
-        kp_frame= []
-        for j in range(0,len(video_x), n_parts):
-            frame_data = [coord for pair in zip(video_x[j:j+n_parts], video_y[j:j+n_parts]) for coord in pair]
-            kp_frame.append(frame_data)
-        kp_frames.append(kp_frame)
-
-
-    return kp_frames
-
-def stratified_split(data, test_size=0.1):
-    # Organize data by class
-    class_data = {}
-    for video_index, video in enumerate(data):
-        # Assume the last 7 elements of the first frame of each video represent the class (emotion)
-        emotion = tuple(video[0][-7:])  
-        if emotion not in class_data:
-            class_data[emotion] = []
-        class_data[emotion].append(video_index)  # Store video index instead of data to save memory
-
-    train_indices = []
-    val_indices = []
-
-    # For each class, split the data into train and val sets
-    for emotion, video_indices in class_data.items():
-        random.shuffle(video_indices)  # Shuffle indices to ensure random splits
-        split_idx = int(len(video_indices) * (1 - test_size))  # Index to split train and val
-        train_indices.extend(video_indices[:split_idx])
-        val_indices.extend(video_indices[split_idx:])
-
-    # Retrieve the data using the indices
-    train_data = [data[idx] for idx in train_indices]
-    val_data = [data[idx] for idx in val_indices]
-
-    # Shuffle the train and val sets to ensure random order
-    random.shuffle(train_data)
-    random.shuffle(val_data)
-
-    return train_data, val_data
 
 def get_batch(split, block_size, batch_size, train_data ,val_data, device=device):
     data = train_data if split == 'train' else val_data
@@ -322,126 +104,6 @@ def get_batch(split, block_size, batch_size, train_data ,val_data, device=device
     x, y, mask = x.to(device), y.to(device), mask.to(device)
     
     return x, y, mask
-
-# Dealing with emotions------------------------------------
-def emotion_labels_to_vectors(emotion_labels):
-    """
-    Convert a list of emotion labels to a list of continuous emotion vectors.
-
-    Parameters:
-    - emotion_labels (list of str): A list of emotion labels.
-    
-    Returns:
-    - list of np.array: A list of continuous emotion vectors.
-    """
-    # Define a mapping from emotion labels to emotion vectors
-    label_to_vector = {
-        'A': [1, 0, 0, 0, 0, 0, 0],   # Anger
-        'D': [0, 1, 0, 0, 0, 0, 0],   # Disgust
-        'F': [0, 0, 1, 0, 0, 0, 0],   # Fear
-        'H': [0, 0, 0, 1, 0, 0, 0],   # Happiness
-        'N': [0, 0, 0, 0, 1, 0, 0],   # Neutral
-        'SA': [0, 0, 0, 0, 0, 1, 0],  # Sad
-        'SU': [0, 0, 0, 0, 0, 0, 1]   # Surprise
-    }
-    
-    # Convert the labels to vectors using the mapping
-    emotion_vectors = [label_to_vector[label] for label in emotion_labels]
-    
-    return emotion_vectors
-
-def emotion_to_encoding(emotion_label):
-    """
-    Convert an emotion label to its one-hot encoding.
-    
-    Parameters:
-    - emotion_label (str): The label of the emotion.
-    - emotion_labels (list of str): The list of all possible emotion labels.
-    
-    Returns:
-    - list of int: The one-hot encoding of the emotion label.
-    """
-    
-    emotion_labels = ['Anger', 'Disgust', 'Fear', 'Happiness', 'Neutral', 'Sad', 'Surprise']
-
-    encoding = [0] * len(emotion_labels)
-    encoding[emotion_labels.index(emotion_label)] = 1
-    return encoding
-
-
-def add_emotions_to_frames(kp_frames, emotion_vectors):
-    # kp_frames is normalised
-    print("Adding emotions to frames...")
-    kp_frames_with_emotion = []
-    
-    for i in tqdm(range(len(emotion_vectors))):
-    # Use list concatenation instead of extend() to avoid in-place modification and None
-        for frame in kp_frames[i]:
-            frame.extend(emotion_vectors[i])
-        kp_frames_with_emotion.append(kp_frames[i])
-    
-    if len(kp_frames_with_emotion) != len(kp_frames):
-        raise Exception("Error: number of frames with emotion does not match number of frames without emotion")
-        
-    return kp_frames_with_emotion
-
-
-def validate_emotion_consistency(x, y):
-    """
-    Validate that the emotion code (last 7 elements of each frame) is consistent
-    between corresponding frames in x and y.
-
-    Parameters:
-    - x (Tensor): Input sequences (batch_size, sequence_length, frame_length)
-    - y (Tensor): Target sequences (batch_size, sequence_length, frame_length)
-    
-    Returns:
-    - bool: True if emotions are consistent, False otherwise
-    """
-    # Extract the emotion encodings from x and y
-    emotion_x = x[:, :, -7:]
-    emotion_y = y[:, :, -7:]
-
-    # Check if the emotion encodings are equal in x and y
-    emotion_equal = torch.all(emotion_x == emotion_y, dim=-1)
-    
-    # Check equality across sequence length (assuming dim 1 is sequence_length)
-    emotion_equal = torch.all(emotion_equal, dim=-1)
-
-    # Check if all batches have consistent emotions
-    all_equal = torch.all(emotion_equal)
-
-    is_consistent = all_equal.item()
-        
-    if not is_consistent:
-        raise Exception("Emotions are inconsistent between x and y.")
-import random
-
-def get_video_by_emotion(data, specific_emotion):
-    """
-    Retrieve a random video of a specified emotion from the dataset.
-
-    Parameters:
-    - data (list): The entire dataset, assumed to be a list of videos.
-    - specific_emotion (str): The emotion label of the desired video.
-
-    Returns:
-    - list: A single video corresponding to the specified emotion.
-    """
-    # Convert the specific emotion to its encoding
-    specific_emotion_tuple = tuple(emotion_to_encoding(specific_emotion))
-
-    # Collect all videos with the specified emotion
-    matching_videos = [video for video in data if tuple(video[0][-7:]) == specific_emotion_tuple]
-
-    # If no video with the specified emotion is found, return None
-    if not matching_videos:
-        return None
-
-    # Randomly select one video from the list of matching videos and return as tensor
-    selected_video = random.choice(matching_videos)
-    return torch.tensor([selected_video]).to(device).float()
-
 
 
 
@@ -777,9 +439,6 @@ def load_checkpoint(model, optimizer,checkpoint_path, scheduler = None):
     return model, optimizer, scheduler, epoch, loss,train_seed
 
 
-import numpy as np
-import cv2
-from tqdm import tqdm
 
 def visualise_skeleton(all_frames, max_x, max_y, max_frames=500, save=False, save_path=None, prefix=None, train_seed=None , delta=False, destroy = True):
     """Input all frames dim 50xn n being the number of frames 50= 25 keypoints x and y coordinates"""
@@ -1016,100 +675,6 @@ def write_notes(notes = None):
         with open(out_path, 'w') as f:
             f.write(notes)
         print(f"Notes saved to {out_path}")
-
-def validate_length(list_3d,length,message=None):
-    print(f"Validating length of {message}")
-    for i in range(len(list_3d)):
-        for j in range(len(list_3d[i])):
-            if len(list_3d[i][j]) != length:
-                raise Exception(f"length of {i},{j} is {len(list_3d[i][j])}")
-                return False
-    return True
-
-# Programmatic functions
-def prep_MEED_data():
-    # load and preprocess data
-    direction = ['left','right','front']
-    files = []
-
-    for d in direction:
-        files.extend(glob.glob(f"G:/UAL_Thesis/affective_computing_datasets/multiview-emotional-expressions-dataset/*/{d}_*/processed_data.json"))
-
-    processed_data = preprocess_data(files)
-    
-    x_list = processed_data['x']
-    y_list = processed_data['y']
-    dx_list = processed_data['dx']
-    dy_list = processed_data['dy']
-    conf_list = processed_data['confidence']
-    emotions_labels = processed_data['emotions']
-    
-    # prepare data for training - deltas from now on
-    global max_x, min_x, max_y, min_y
-    
-    
-    max_x, min_x, normalised_x = normalize_values_2D(x_list)
-    max_y, min_y, normalised_y = normalize_values_2D(y_list)
-    max_dx, min_dx, normalised_dx = normalize_values_2D(dx_list,max_x,min_x)
-    max_dy, min_dy, normalised_dy = normalize_values_2D(dy_list,max_y,min_y)
-    
-
-    dkp_frames = create_kp_frames(normalised_dx, normalised_dy)  # 1D tensor array of 50 numbers (x,y,x,y --> 25 keypoints)
-    kp_frames = create_kp_frames(normalised_x, normalised_y)  # 1D tensor array of 50 numbers (x,y,x,y --> 25 keypoints) - for getting first frames/validation
-    
-    validate_length(dkp_frames,50,message="dkp_frames")
-    validate_length(kp_frames,50,message="kp_frames")
-    
-    data = add_delta_to_frames(kp_frames, dkp_frames)
-    validate_length(data,100,message="data after delta")
-    data = add_emotions_to_frames(data, emotion_labels_to_vectors(emotions_labels))
-    validate_length(data,107,message="data after emotions")
-    
-    
-    frame_dim = len(data[0][0]) # how many numbers are in each frame? - 50 kps xy + 50 deltas + 7 emotion 
-    print(f"frame_dim: {frame_dim}")
-    
-    global train_data, val_data
-    train_data, val_data = stratified_split(data, test_size=0.1)
-    
-    global threshold
-    # calculate threshold, maybe change this to entire data instead of just train
-    threshold = compute_threshold(data)
-
-    
-    
-    MEED= (train_data,val_data,frame_dim,max_x,min_x,max_y,min_y,max_dx,min_dx,max_dy,min_dy)
- 
-    return MEED
-
-def compute_threshold(dataset):
-    """
-    Compute the threshold for the magnitude of cumulative deltas based on the entire dataset.
-
-    Parameters:
-    - dataset (torch.Tensor): The dataset with shape [num_samples, sequence_length, feature_dim].
-
-    Returns:
-    - float: The computed threshold.
-    """
-
-    # Flatten the dataset to 2D structure
-    flattened_dataset = [sample for batch in dataset for sample in batch]
-
-    # Extract the deltas from the dataset and compute their magnitude
-    deltas_magnitude = [[abs(x) for x in sample[50:100]] for sample in flattened_dataset]
-
-    # Compute the cumulative magnitude of deltas over the entire sequence for each sample
-    cumulative_deltas_magnitude = [sum(sample) for sample in deltas_magnitude]
-
-    # Calculate the average cumulative magnitude of deltas across the entire dataset
-    threshold = sum(cumulative_deltas_magnitude) / len(cumulative_deltas_magnitude)
-
-    # Optionally, set the threshold slightly above the average
-    threshold_multiplier = 1.2  # Increase threshold by 10%
-    threshold *= threshold_multiplier
-
-    return threshold
 
 
 
