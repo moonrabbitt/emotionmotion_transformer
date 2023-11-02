@@ -50,15 +50,19 @@ EPOCHS = 100000
 FRAMES_GENERATE = 300
 TRAIN = True
 EVAL_EVERY = 1000
-CHECKPOINT_PATH = "checkpoints/proto6_context5_checkpoint_fine.pth"
+CHECKPOINT_PATH = "checkpoints/proto6_checkpoint_fine.pth"
 L1_LAMBDA = None
 L2_REG=0.0
-FINETUNE = False
+FINETUNE = True
+FINE_TUNING_LR = 1e-5
+FINE_TUNING_EPOCHS = 10000
 global train_seed
     
 
 # NOTES---------------------------------
-notes = f"""Adding dance data DBDance
+notes = f"""Adding dance data DBDance Fine tuning on DBDance data.
+Finetuning epochs: {FINE_TUNING_EPOCHS}
+Finetuning LR: {FINE_TUNING_LR}
 
 Penalising deltas --> use going to use same context length windows frame windows but maybe adjust to the same as context size?
 Penalty threshold 1.2 --> 20% above average delta of train data.
@@ -84,18 +88,28 @@ Hyperparams: {BATCH_SIZE} batch size, {BLOCK_SIZE} block size, {DROPOUT} dropout
 # Functions--------------------------------------------------
 
 
-def get_batch(split, block_size, batch_size, train_data ,val_data, device=device):
+import random
+import torch
+
+def get_batch(split, block_size, batch_size, train_data, val_data, device=device):
     data = train_data if split == 'train' else val_data
     
+    # Filter out videos that are too short
+    valid_data = [video for video in data if len(video) > block_size]
+    
+    # If there are not enough valid videos, throw an error
+    if len(valid_data) < batch_size:
+        raise ValueError("Not enough videos longer than block_size. Reduce block_size or use more/longer videos.")
+    
     # Choose random videos
-    ix = torch.randint(len(data), (batch_size,))
+    ix = [random.randint(0, len(valid_data) - 1) for _ in range(batch_size)]
 
     # For each chosen video, select a random starting point
-    start_frames = [torch.randint(len(data[i]) - block_size, (1,)).item() for i in ix]
+    start_frames = [random.randint(0, len(valid_data[i]) - (block_size +1)) for i in ix]
 
     # Extract subsequences from each chosen video and convert to tensors
-    x = torch.stack([torch.tensor(data[i][start:start+block_size], dtype=torch.float32) for i, start in zip(ix, start_frames)])
-    y = torch.stack([torch.tensor(data[i][start+1:start+block_size+1], dtype=torch.float32) for i, start in zip(ix, start_frames)])
+    x = torch.stack([torch.tensor(valid_data[i][start:start + block_size], dtype=torch.float32) for i, start in zip(ix, start_frames)])
+    y = torch.stack([torch.tensor(valid_data[i][start + 1:start + block_size + 1], dtype=torch.float32) for i, start in zip(ix, start_frames)])
 
     # Compute the mask to mask out -inf values
     mask = (x != float('-inf')).all(dim=-1).float()  # assuming -inf is present in any part of the data point
@@ -104,6 +118,7 @@ def get_batch(split, block_size, batch_size, train_data ,val_data, device=device
     x, y, mask = x.to(device), y.to(device), mask.to(device)
     
     return x, y, mask
+
 
 
 
@@ -682,19 +697,34 @@ def write_notes(notes = None):
 if __name__ == "__main__":
     
     # Preparing MEED data for model
-    MEED= prep_MEED_data()
-    train_data,val_data,frame_dim,max_x,min_x,max_y,min_y,max_dx,min_dx,max_dy,min_dy = MEED
+    processed_data= prep_data(dataset="DanceDB")
+    train_data,val_data,frame_dim,max_x,min_x,max_y,min_y,max_dx,min_dx,max_dy,min_dy,threshold = processed_data
     
     
     
     # create model
     m = MotionModel(input_dim=frame_dim, output_dim=frame_dim, blocksize=BLOCK_SIZE, hidden_dim=512, n_layers=8, dropout=DROPOUT)
     m = m.to(device)
-    optimizer = torch.optim.Adam(m.parameters(), lr=LEARNING_RATE, weight_decay=L2_REG)  # weight_decay=1e-5 L2 regularization
+    
+    if FINETUNE:
+        
+        # Set lower learning rate for fine-tuning
+        optimizer = torch.optim.Adam(m.parameters(), lr=FINE_TUNING_LR, weight_decay=L2_REG)
+        EPOCHS = FINE_TUNING_EPOCHS
+        
+        # Load pre-trained model weights for fine-tuning
+        m, optimizer,scheduler, epoch, loss, train_seed = load_checkpoint(m, optimizer, CHECKPOINT_PATH)
+        
+        print('Fine-tuning model...')
+    else:
+        # Training from scratch
+        optimizer = torch.optim.Adam(m.parameters(), lr=LEARNING_RATE, weight_decay=L2_REG)
+
     scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=3, verbose=True)
+    
     #loss evaluated at every EVAL EVERY, so 2*EVAL_EVERY is scheduler's actual patience
     # train
-    if TRAIN:
+    if TRAIN or FINETUNE:
         # Generate a random seed
         
         train_seed = random.randint(1, 100000)
@@ -719,7 +749,6 @@ if __name__ == "__main__":
 
             
             optimizer.step()
-            
             
             
             if epoch % EVAL_EVERY == 0:
@@ -776,7 +805,7 @@ if __name__ == "__main__":
         visualise_skeleton(batch, max_x, max_y, max_frames=FRAMES_GENERATE,save = True,save_path=None,prefix=f'adam_{EPOCHS}_delta',train_seed=train_seed,delta=True)
 
 
-    if TRAIN:
+    if TRAIN or FINETUNE:
         write_notes(notes)
      
     print('Done!')

@@ -42,7 +42,7 @@ def interpolate(coord_prev, coord_next):
     """
     return (coord_prev + coord_next) / 2
 
-def preprocess_data(files: List[str] , dataset = "MEED") -> dict:
+def preprocess_data(files: List[str] , dataset) -> dict:
     """
     Pre-process data by interpolating to avoid (0,0) keypoints.
 
@@ -61,6 +61,9 @@ def preprocess_data(files: List[str] , dataset = "MEED") -> dict:
         with open(file, 'r') as f:
             
             
+            x=[]
+            y=[]
+            conf=[]
             #  DOING THIS!!!!!! convert dbdance to MEED format
             # get different emotion code depending on dataset structure
             if dataset == "MEED":
@@ -71,19 +74,17 @@ def preprocess_data(files: List[str] , dataset = "MEED") -> dict:
                 emotion_code = [file.split('_')[-2].split('\\')[0][3:-3]]
                 emotions.extend(emotion_code)
             
-            elif dataset == "DBDance":
+            elif dataset == "DanceDB":
                 data = json.loads(f.read())
-                x=[]
-                y=[]
-                print("Prep data for DBDance...")
-                for i in tqdm(range(len(data)-25)):
+                
+                for i in range(len(data)-25):
                     nested_list = data[str(i)]
                     x.extend([coordinate[0] if coordinate is not None else 0 for coordinate in nested_list])
                     y.extend([coordinate[1] if coordinate is not None else 0 for coordinate in nested_list])
                 conf = [1] * len(x)
-                matched_emotion = get_matched_danceDB_emotion(file)
+                matched_emotion = [get_matched_danceDB_emotion(file)]
                 emotions.extend(matched_emotion)
-           
+         
             for i in range(len(x)):
                 # Check if coordinate is (0,0)
                 if x[i] == 0 and y[i] == 0:
@@ -298,6 +299,7 @@ def add_emotions_to_frames(kp_frames, emotion_vectors):
     print("Adding emotions to frames...")
     kp_frames_with_emotion = []
     
+    
     for i in tqdm(range(len(emotion_vectors))):
     # Use list concatenation instead of extend() to avoid in-place modification and None
         for frame in kp_frames[i]:
@@ -394,6 +396,7 @@ def encode_danceDB_emotion(emotion):
     
     emotion_mapping = danceDB_emotions()
     if emotion not in emotion_mapping:
+        print(emotion)
         return "Emotion not found in mapping"
     
     encoding = [0.0] * len(emotion_labels)
@@ -468,7 +471,8 @@ def compute_threshold(dataset):
     return threshold
 
 
-def prep_data(dataset = "MEED"):
+def prep_data(dataset):
+    print(f"Preparing data for {dataset}...")
     
     if dataset == "MEED":
         # load and preprocess data
@@ -492,7 +496,7 @@ def prep_data(dataset = "MEED"):
         # Filter the files based on the keywords in emotions_set and return the matched emotion
         files = [file for file in all_files for emotion in emotions_set if emotion.lower() in file.lower()]
 
-    processed_data = preprocess_data(files)
+    processed_data = preprocess_data(files, dataset=dataset)
     
     x_list = processed_data['x']
     y_list = processed_data['y']
@@ -534,12 +538,12 @@ def prep_data(dataset = "MEED"):
     global train_data, val_data
     train_data, val_data = stratified_split(data, test_size=0.1)
     
-    global threshold
+    
     # calculate threshold, maybe change this to entire data instead of just train
     threshold = compute_threshold(data)
 
     
     
-    MEED= (train_data,val_data,frame_dim,max_x,min_x,max_y,min_y,max_dx,min_dx,max_dy,min_dy)
+    processed_data= (train_data,val_data,frame_dim,max_x,min_x,max_y,min_y,max_dx,min_dx,max_dy,min_dy,threshold)
  
-    return MEED
+    return processed_data
