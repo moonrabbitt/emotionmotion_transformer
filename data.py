@@ -17,7 +17,17 @@ import copy
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 
+device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+
 # Load and preprocess data------------------------------------
+
+def get_matched_danceDB_emotion(file):
+    lowercase_file = file.lower()
+    emotions_set = set(danceDB_emotions().keys())
+    for emotion in emotions_set:
+        if emotion.lower() in lowercase_file:
+            return emotion
+    return None
 
 def interpolate(coord_prev, coord_next):
     """
@@ -48,16 +58,31 @@ def preprocess_data(files: List[str] , dataset = "MEED") -> dict:
     emotions = []
     
     for file in tqdm(files):
-        with open(file) as f:
-            data = json.load(f)
-            x = data['x']
-            y = data['y']
+        with open(file, 'r') as f:
             
+            
+            #  DOING THIS!!!!!! convert dbdance to MEED format
+            # get different emotion code depending on dataset structure
             if dataset == "MEED":
+                data = json.load(f)
+                x = data['x']
+                y = data['y']
                 conf = data['confidence']
                 emotion_code = [file.split('_')[-2].split('\\')[0][3:-3]]
                 emotions.extend(emotion_code)
             
+            elif dataset == "DBDance":
+                data = json.loads(f.read())
+                x=[]
+                y=[]
+                print("Prep data for DBDance...")
+                for i in tqdm(range(len(data)-25)):
+                    nested_list = data[str(i)]
+                    x.extend([coordinate[0] if coordinate is not None else 0 for coordinate in nested_list])
+                    y.extend([coordinate[1] if coordinate is not None else 0 for coordinate in nested_list])
+                conf = [1] * len(x)
+                matched_emotion = get_matched_danceDB_emotion(file)
+                emotions.extend(matched_emotion)
            
             for i in range(len(x)):
                 # Check if coordinate is (0,0)
@@ -342,6 +367,42 @@ def get_video_by_emotion(data, specific_emotion):
     return torch.tensor([selected_video]).to(device).float()
 
 
+def danceDB_emotions():
+    # co pilot is really good at guessing emotions combinations
+    return {
+        'Happy': {'Happiness': 1.0},
+        'Miserable': {'Sad': 1.0},
+        'Relaxed': {'Neutral': 0.9, 'Happiness': 0.1},
+        'Sad': {'Sad': 1.0},
+        'Satisfied': {'Happiness': 1.0},
+        'Tired': {'Neutral': 1.0},
+        'Excited': {'Happiness': 0.9, 'Surprise': 0.1},
+        'Afraid': {'Fear': 1.0},
+        'Angry': {'Anger': 1.0},
+        'Annoyed': {'Anger': 0.5, 'Disgust': 0.5},
+        'Bored': {'Neutral': 0.8, 'Sad': 0.1, 'Anger': 0.1},
+        'Pleased': {'Happiness': 1.0},
+        'Neutral': {'Neutral': 1.0},
+        'Nervous': {'Fear': 0.5, 'Surprise': 0.5},
+        'Mix': {'Anger': 0.143, 'Disgust': 0.143, 'Fear': 0.143, 'Happiness': 0.143, 'Neutral': 0.143, 'Sad': 0.143, 'Surprise': 0.143},
+        'Curiosity': {'Surprise': 0.3,'Happiness': 0.3,'Neutral': 0.3,'Fear': 0.1}
+    }
+
+def encode_danceDB_emotion(emotion):
+    
+    emotion_labels = ['Anger', 'Disgust', 'Fear', 'Happiness', 'Neutral', 'Sad', 'Surprise']
+    
+    emotion_mapping = danceDB_emotions()
+    if emotion not in emotion_mapping:
+        return "Emotion not found in mapping"
+    
+    encoding = [0.0] * len(emotion_labels)
+    for emotion_label, percentage in emotion_mapping[emotion].items():
+        if emotion_label in emotion_labels:
+            index = emotion_labels.index(emotion_label)
+            encoding[index] = percentage
+    
+    return encoding
 
 
 # Programmatic functions
@@ -407,13 +468,29 @@ def compute_threshold(dataset):
     return threshold
 
 
-def prep_MEED_data():
-    # load and preprocess data
-    direction = ['left','right','front']
-    files = []
+def prep_data(dataset = "MEED"):
+    
+    if dataset == "MEED":
+        # load and preprocess data
+        direction = ['left','right','front']
+        files = []
 
-    for d in direction:
-        files.extend(glob.glob(f"G:/UAL_Thesis/affective_computing_datasets/multiview-emotional-expressions-dataset/*/{d}_*/processed_data.json"))
+        for d in direction:
+            files.extend(glob.glob(f"G:/UAL_Thesis/affective_computing_datasets/multiview-emotional-expressions-dataset/*/{d}_*/processed_data.json"))
+
+    elif dataset == "DanceDB":
+        emotions_set = {
+        'Happy', 'Miserable', 'Relaxed', 'Sad', 'Satisfied', 'Tired', 
+        'Excited', 'Afraid', 'Angry', 'Annoyed', 'Bored', 'Pleased',
+        'Neutral', 'Nervous', 'Mix', 'Curiosity'
+        }   
+
+        # Define the path pattern to load the files
+        path_pattern = "G:\\UAL_Thesis\\affective_computing_datasets\\DanceDBrenders\\DanceDB\\*\\*_keypoints.txt"
+        # Get the list of all files that match the pattern
+        all_files = glob.glob(path_pattern)
+        # Filter the files based on the keywords in emotions_set and return the matched emotion
+        files = [file for file in all_files for emotion in emotions_set if emotion.lower() in file.lower()]
 
     processed_data = preprocess_data(files)
     
@@ -421,7 +498,6 @@ def prep_MEED_data():
     y_list = processed_data['y']
     dx_list = processed_data['dx']
     dy_list = processed_data['dy']
-    conf_list = processed_data['confidence']
     emotions_labels = processed_data['emotions']
     
     # prepare data for training - deltas from now on
@@ -442,7 +518,13 @@ def prep_MEED_data():
     
     data = add_delta_to_frames(kp_frames, dkp_frames)
     validate_length(data,100,message="data after delta")
-    data = add_emotions_to_frames(data, emotion_labels_to_vectors(emotions_labels))
+    
+    if dataset == "MEED":
+        data = add_emotions_to_frames(data, emotion_labels_to_vectors(emotions_labels))
+    
+    elif dataset == "DanceDB":
+        data = add_emotions_to_frames(data, [encode_danceDB_emotion(emotion) for emotion in emotions_labels])
+    
     validate_length(data,107,message="data after emotions")
     
     
