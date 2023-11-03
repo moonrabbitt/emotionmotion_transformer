@@ -55,22 +55,23 @@ L1_LAMBDA = None
 L2_REG=0.0
 FINETUNE = True
 FINE_TUNING_LR = 1e-5
-FINE_TUNING_EPOCHS = 10000
-global train_seed
+FINE_TUNING_EPOCHS = 100000
+PENALTY = False
+global train_seeds
     
 
 # NOTES---------------------------------
 notes = f"""Adding dance data DBDance Fine tuning on DBDance data.
 Finetuning epochs: {FINE_TUNING_EPOCHS}
-Finetuning LR: {FINE_TUNING_LR}
+Finetuning LR: {FINE_TUNING_LR} + 10000 + 30000
 
-Penalising deltas --> use going to use same context length windows frame windows but maybe adjust to the same as context size?
-Penalty threshold 1.2 --> 20% above average delta of train data.
+No penalising
 
 Adding scheduler to reduce learning rate if loss doesn't improve for 3 eval sets
 
 # Calculate the cumulative movement over the entire sequence for each sample in the batch
 cumulative_deltas = logits_deltas.sum(dim=1)
+
 
 # Calculate the penalty for samples where cumulative movement is below the threshold
 penalty_mask = (cumulative_deltas < threshold).float()
@@ -278,30 +279,33 @@ class MotionModel(nn.Module):
             # You can adjust this value based on your needs
            
             if L1_LAMBDA is None:
-
                 
-                # Your current MSE loss calculation
-                mse_loss = F.mse_loss(logits, targets)
+                # if penalising model for small movements
+                if PENALTY:
+                    
+                    # Your current MSE loss calculation
+                    mse_loss = F.mse_loss(logits, targets)
 
-                # Extract the magnitude of the deltas from logits
-                logits_deltas_magnitude = torch.abs(logits[:, :, 50:100])
+                    # Extract the magnitude of the deltas from logits
+                    logits_deltas_magnitude = torch.abs(logits[:, :, 50:100])
 
-                # Calculate the cumulative magnitude of the deltas over the entire sequence for each sample in the batch
-                cumulative_deltas_magnitude = logits_deltas_magnitude.sum(dim=1)
+                    # Calculate the cumulative magnitude of the deltas over the entire sequence for each sample in the batch
+                    cumulative_deltas_magnitude = logits_deltas_magnitude.sum(dim=1)
 
-                # Calculate the penalty for samples where the cumulative magnitude of deltas is below the threshold
-                penalty_mask = (cumulative_deltas_magnitude < threshold).float()
-                penalty = penalty_mask.mean()
+                    # Calculate the penalty for samples where the cumulative magnitude of deltas is below the threshold
+                    penalty_mask = (cumulative_deltas_magnitude < threshold).float()
+                    penalty = penalty_mask.mean()
 
-                # Hyperparameter to balance the original MSE and the new penalty term
-                alpha = 0.01  # This value can be adjusted based on your needs
+                    # Hyperparameter to balance the original MSE and the new penalty term
+                    alpha = 0.01  # This value can be adjusted based on your needs
 
-                # Combine the MSE loss and the penalty term to get the modified loss
-                loss = mse_loss + alpha * penalty
-
-
-
-                                    
+                    # Combine the MSE loss and the penalty term to get the modified loss
+                    loss = mse_loss + alpha * penalty
+                
+                else:
+                    loss = F.mse_loss(logits, targets)
+                
+ 
             else:
                 l1_norm = sum(p.abs().sum() for p in m.parameters())  # Calculate L1 norm for all model parameters
                 loss = F.mse_loss(logits, targets) + l1_lambda * l1_norm
