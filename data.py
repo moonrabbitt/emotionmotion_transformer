@@ -64,7 +64,7 @@ def preprocess_data(files: List[str] , dataset) -> dict:
             x=[]
             y=[]
             conf=[]
-            #  DOING THIS!!!!!! convert dbdance to MEED format
+  
             # get different emotion code depending on dataset structure
             if dataset == "MEED":
                 data = json.load(f)
@@ -72,6 +72,7 @@ def preprocess_data(files: List[str] , dataset) -> dict:
                 y = data['y']
                 conf = data['confidence']
                 emotion_code = [file.split('_')[-2].split('\\')[0][3:-3]]
+                # 1 emotion per file - len(emotion) = len(files)
                 emotions.extend(emotion_code)
             
             elif dataset == "DanceDB":
@@ -83,6 +84,7 @@ def preprocess_data(files: List[str] , dataset) -> dict:
                     y.extend([coordinate[1] if coordinate is not None else 0 for coordinate in nested_list])
                 conf = [1] * len(x)
                 matched_emotion = [get_matched_danceDB_emotion(file)]
+                # 1 emotion per file - len(emotion) = len(files)
                 emotions.extend(matched_emotion)
          
             for i in range(len(x)):
@@ -249,7 +251,7 @@ def validate_length(list_3d,length,message=None):
     return True
 
 # Dealing with emotions------------------------------------
-def emotion_labels_to_vectors(emotion_labels):
+def emotion_labels_to_vectors(emotion_labels) -> list:
     """
     Convert a list of emotion labels to a list of continuous emotion vectors.
 
@@ -299,7 +301,7 @@ def add_emotions_to_frames(kp_frames, emotion_vectors):
     print("Adding emotions to frames...")
     kp_frames_with_emotion = []
     
-    
+    # length of emotion_vectors should be the same as kp_frames - 1 emotion per video
     for i in tqdm(range(len(emotion_vectors))):
     # Use list concatenation instead of extend() to avoid in-place modification and None
         for frame in kp_frames[i]:
@@ -410,12 +412,11 @@ def encode_danceDB_emotion(emotion):
 
 # Programmatic functions
 
-def stratified_split(data, test_size=0.1):
+def stratified_split(data, emotions, test_size=0.1):
     # Organize data by class
     class_data = {}
-    for video_index, video in enumerate(data):
-        # Assume the last 7 elements of the first frame of each video represent the class (emotion)
-        emotion = tuple(video[0][-7:])  
+    for video_index, (video, emotion) in enumerate(zip(data, emotions)):
+        # emotion is already given as a vector or a class identifier
         if emotion not in class_data:
             class_data[emotion] = []
         class_data[emotion].append(video_index)  # Store video index instead of data to save memory
@@ -432,14 +433,22 @@ def stratified_split(data, test_size=0.1):
 
     # Retrieve the data using the indices
     train_data = [data[idx] for idx in train_indices]
+    train_emotions = [emotions[idx] for idx in train_indices]
     val_data = [data[idx] for idx in val_indices]
+    val_emotions = [emotions[idx] for idx in val_indices]
 
     # Shuffle the train and val sets to ensure random order
-    random.shuffle(train_data)
-    random.shuffle(val_data)
+    train_data, train_emotions = shuffle_together(train_data, train_emotions)
+    val_data, val_emotions = shuffle_together(val_data, val_emotions)
 
-    return train_data, val_data
+    return (train_data, train_emotions), (val_data, val_emotions)
 
+
+def shuffle_together(a, b):
+    combined = list(zip(a, b))
+    random.shuffle(combined)
+    a[:], b[:] = zip(*combined)
+    return a, b
 
 def compute_threshold(dataset):
     """
@@ -523,27 +532,29 @@ def prep_data(dataset):
     data = add_delta_to_frames(kp_frames, dkp_frames)
     validate_length(data,100,message="data after delta")
     
+    all_emotions = []
+    
     if dataset == "MEED":
-        data = add_emotions_to_frames(data, emotion_labels_to_vectors(emotions_labels))
+        # data shape: [video, frame, 50 kps xy + 50 deltas]
+        all_emotions = emotion_labels_to_vectors(emotions_labels)
+
     
     elif dataset == "DanceDB":
-        data = add_emotions_to_frames(data, [encode_danceDB_emotion(emotion) for emotion in emotions_labels])
+        all_emotions = [encode_danceDB_emotion(emotion) for emotion in emotions_labels]
+
+    validate_length(data,100,message="data after emotions - should be the same as before")
     
-    validate_length(data,107,message="data after emotions")
     
-    
-    frame_dim = len(data[0][0]) # how many numbers are in each frame? - 50 kps xy + 50 deltas + 7 emotion 
+    frame_dim = len(data[0][0]) # how many numbers are in each frame? - 50 kps xy + 50 deltas 
     print(f"frame_dim: {frame_dim}")
     
     global train_data, val_data
-    train_data, val_data = stratified_split(data, test_size=0.1)
+    (train_data, train_emotions), (val_data, val_emotions) = stratified_split(data, all_emotions, test_size=0.1)
     
     
     # calculate threshold, maybe change this to entire data instead of just train
     threshold = compute_threshold(data)
-
     
-    
-    processed_data= (train_data,val_data,frame_dim,max_x,min_x,max_y,min_y,max_dx,min_dx,max_dy,min_dy,threshold)
+    processed_data = (train_data, train_emotions, val_data, val_emotions, frame_dim, max_x, min_x, max_y, min_y, max_dx, min_dx, max_dy, min_dy, threshold)
  
     return processed_data
