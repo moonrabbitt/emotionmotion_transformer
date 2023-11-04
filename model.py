@@ -46,11 +46,11 @@ BATCH_SIZE = 8 # how many independent sequences will we process in parallel? - e
 BLOCK_SIZE = 16 # what is the maximum context length for predictions? 
 DROPOUT = 0.3
 LEARNING_RATE = 0.0001 #Initial learning rate
-EPOCHS = 100000
+EPOCHS = 10000
 FRAMES_GENERATE = 300
 TRAIN = True
 EVAL_EVERY = 1000
-CHECKPOINT_PATH = "checkpoints/proto6_checkpoint_fine.pth"
+CHECKPOINT_PATH = "checkpoints/proto7_checkpoint.pth"
 L1_LAMBDA = None
 L2_REG=0.0
 FINETUNE = False
@@ -92,8 +92,8 @@ Hyperparams: {BATCH_SIZE} batch size, {BLOCK_SIZE} block size, {DROPOUT} dropout
 def get_batch(split, block_size, batch_size, train_data, train_emotions, val_data, val_emotions, device=device):
     data, emotions = (train_data, train_emotions) if split == 'train' else (val_data, val_emotions)
     
-    # Filter out videos that are too short
-    valid_indices = [i for i, video in enumerate(data) if len(video) > block_size]
+    # Filter out videos that are too short - blocksize+1
+    valid_indices = [i for i, video in enumerate(data) if len(video) > block_size+1]
     
     # If there are not enough valid videos, throw an error
     if len(valid_indices) < batch_size:
@@ -103,7 +103,7 @@ def get_batch(split, block_size, batch_size, train_data, train_emotions, val_dat
     selected_indices = random.sample(valid_indices, batch_size)
 
     # For each chosen video, select a random starting point
-    start_frames = [random.randint(0, len(data[i]) - block_size) for i in selected_indices]
+    start_frames = [random.randint(0, len(data[i]) - (block_size +1)) for i in selected_indices]
 
     # Extract subsequences from each chosen video and convert to tensors
     x = torch.stack([torch.tensor(data[i][start:start + block_size], dtype=torch.float32) for i, start in zip(selected_indices, start_frames)])
@@ -232,30 +232,19 @@ class Block(nn.Module):
         self.ffwd = FeedForward(n_emb=n_emb)
         # self.ln1 =  nn.InstanceNorm1d(n_emb , device=device)
         # self.ln2 =  nn.InstanceNorm1d(n_emb, device=device)
+        # 2* because concatenate emotion and keypoints
         self.ln1 =  nn.LayerNorm(n_emb , device=device)
         self.ln2 =  nn.LayerNorm(n_emb, device=device)
+        self.hidden_dim = n_emb
+
         
     def forward(self, x):
-        # Assume x is a tuple (keypoint_features, emotion_features) - doing this so can feed into sequential
-        keypoint_features, emotion_features = x
-        
-        # If emotion_features are provided, they could be used to condition the self-attention mechanism.
-        if emotion_features is not None:
-            conditioned_x = self.condition_attention(x, emotion_features)
-        else:
-            conditioned_x = x
-
-        x = x + self.sa(self.ln1(conditioned_x))
+        # x + due to residual connection
+        x = x + self.sa(self.ln1(x))
         x = x + self.ffwd(self.ln2(x))
-        return x, emotion_features
+        return x
     
-    def condition_attention(self, x, emotion_features):
-        # Repeat emotion features to match the sequence length of x
-        emotion_features = emotion_features.unsqueeze(1).repeat(1, x.size(1), 1)
-        # Add emotion features to the queries or keys
-        conditioned_x = x + emotion_features
-        return conditioned_x
-    
+   
 class MotionModel(nn.Module):
     
     def __init__(self, input_dim, output_dim, emotion_dim=7, blocksize = 16, hidden_dim=256, n_layers=8 , dropout=0.2, device = device):
@@ -278,7 +267,7 @@ class MotionModel(nn.Module):
        
     
         
-    def forward(self, inputs, emotions, targets=None , l1_lambda = 0.001, mask=None,):
+    def forward(self, inputs,  targets=None , emotions =None, l1_lambda = 0.001, mask=None,):
         B,T,C = inputs.shape # batch size, time, context
         
         # fc1 transforms input into hidden dimension
@@ -289,18 +278,23 @@ class MotionModel(nn.Module):
         # Process emotion inputs
         emotion_features = self.emotion_fc(emotions)  # B, emotion_dim to B, hidden_dim
         emotion_features = self.emotion_dropout(emotion_features)
-        emotion_features = emotion_features.unsqueeze(1)  # B,1,hidden_dim
-            
+        emotion_features = emotion_features.unsqueeze(1).expand(-1, T, -1)  # B, T, hidden_dim
+        
+        
+        # FIGURE OUT MULTIMODAL INPUT TORCH
         # Combine keypoint and emotion features
-        x = (keypoint_features, emotion_features)
+        # x = torch.cat((keypoint_features, emotion_features), dim=-1)  # Concatenate along the feature dimension
+        x = keypoint_features + emotion_features
         x = self.blocks(x) # B,T,hidden dimension
         
-        keypoint_features, emotion_features = x
+        # Deconcatenate keypoint and emotion features
+        # keypoint_features, emotion_features = x.split([self.hidden_dim, self.hidden_dim], dim=-1)
+        # keypoint_features, emotion_features = x
 
-        keypoint_features = self.lm_head(keypoint_features) # B,T,hidden dimension
+        x= self.lm_head(x) # B,T,hidden dimension
         
         # fc2 transforms hidden dimension into output dimension
-        logits = self.fc2(keypoint_features)
+        logits = self.fc2(x)
         
         # Output emotion logits - emotions which was used to condition the model 
         emotion_logits = self.emotion_head(emotion_features.mean(dim=1))  # B, emotion_dim
@@ -389,7 +383,7 @@ def estimate_loss():
         losses = torch.zeros(eval_iters)
         for k in tqdm(range(eval_iters), desc=f"Evaluating Loss", unit="batch"):
             xb, yb, eb, _ = get_batch(split, BLOCK_SIZE, BATCH_SIZE, train_data,train_emotions, val_data, val_emotions)
-            _, loss = m(xb, yb)
+            _,_, loss = m(xb, yb, eb)
             losses[k] = loss.item()
         out[split] = losses.mean()
     m.train()
@@ -785,7 +779,7 @@ if __name__ == "__main__":
             xb, yb, eb, _ = get_batch("train", BLOCK_SIZE, BATCH_SIZE, train_data,train_emotions, val_data, val_emotions)
           
             # evaluate loss
-            logits, loss = m(xb,yb,l1_lambda=L1_LAMBDA)
+            logits, emotion_logits, loss = m(xb,yb,eb)
             optimizer.zero_grad(set_to_none=True)
             loss.backward()
             
@@ -795,7 +789,7 @@ if __name__ == "__main__":
             
             optimizer.step()
             
-            
+            # evaluate and save loss
             if epoch % EVAL_EVERY == 0:
                 losses = estimate_loss()
                 scheduler.step(losses['val'])
@@ -837,6 +831,7 @@ if __name__ == "__main__":
     
     # Generate a sequence
     print(f'Generating sequence of {FRAMES_GENERATE} frames...')
+    # xb and yb should always have the same emotion - because same video
     xb, yb, eb, _ = get_batch("val", BLOCK_SIZE, BATCH_SIZE, train_data,train_emotions, val_data, val_emotions)
 
     generated = m.generate(xb, eb, FRAMES_GENERATE)

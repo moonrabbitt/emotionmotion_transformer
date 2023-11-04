@@ -415,8 +415,9 @@ def encode_danceDB_emotion(emotion):
 def stratified_split(data, emotions, test_size=0.1):
     # Organize data by class
     class_data = {}
-    for video_index, (video, emotion) in enumerate(zip(data, emotions)):
-        # emotion is already given as a vector or a class identifier
+    for video_index, video in enumerate(data):
+        # Convert the emotion list to a tuple to be used as a dictionary key
+        emotion = tuple(emotions[video_index])
         if emotion not in class_data:
             class_data[emotion] = []
         class_data[emotion].append(video_index)  # Store video index instead of data to save memory
@@ -438,10 +439,13 @@ def stratified_split(data, emotions, test_size=0.1):
     val_emotions = [emotions[idx] for idx in val_indices]
 
     # Shuffle the train and val sets to ensure random order
-    train_data, train_emotions = shuffle_together(train_data, train_emotions)
-    val_data, val_emotions = shuffle_together(val_data, val_emotions)
+    random.shuffle(train_data)
+    random.shuffle(train_emotions)
+    random.shuffle(val_data)
+    random.shuffle(val_emotions)
 
     return (train_data, train_emotions), (val_data, val_emotions)
+
 
 
 def shuffle_together(a, b):
