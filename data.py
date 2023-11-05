@@ -71,22 +71,24 @@ def preprocess_data(files: List[str] , dataset) -> dict:
                 x = data['x']
                 y = data['y']
                 conf = data['confidence']
-                emotion_code = [file.split('_')[-2].split('\\')[0][3:-3]]
+                emotion_code = file.split('_')[-2].split('\\')[0][3:-3]
                 # 1 emotion per file - len(emotion) = len(files)
-                emotions.extend(emotion_code)
+                emotions.append(emotion_labels_to_vectors(emotion_code))
+            
             
             elif dataset == "DanceDB":
                 data = json.loads(f.read())
-                
                 for i in range(len(data)-25):
                     nested_list = data[str(i)]
                     x.extend([coordinate[0] if coordinate is not None else 0 for coordinate in nested_list])
                     y.extend([coordinate[1] if coordinate is not None else 0 for coordinate in nested_list])
                 conf = [1] * len(x)
-                matched_emotion = [get_matched_danceDB_emotion(file)]
+                matched_emotion = get_matched_danceDB_emotion(file)
                 # 1 emotion per file - len(emotion) = len(files)
-                emotions.extend(matched_emotion)
-         
+                emotions.append(encode_danceDB_emotion(matched_emotion))
+              
+                
+                
             for i in range(len(x)):
                 # Check if coordinate is (0,0)
                 if x[i] == 0 and y[i] == 0:
@@ -251,7 +253,7 @@ def validate_length(list_3d,length,message=None):
     return True
 
 # Dealing with emotions------------------------------------
-def emotion_labels_to_vectors(emotion_labels) -> list:
+def emotion_labels_to_vectors(emotion_label):
     """
     Convert a list of emotion labels to a list of continuous emotion vectors.
 
@@ -273,9 +275,7 @@ def emotion_labels_to_vectors(emotion_labels) -> list:
     }
     
     # Convert the labels to vectors using the mapping
-    emotion_vectors = [label_to_vector[label] for label in emotion_labels]
-    
-    return emotion_vectors
+    return label_to_vector[emotion_label] 
 
 def emotion_to_encoding(emotion_label):
     """
@@ -372,7 +372,7 @@ def get_video_by_emotion(data, specific_emotion):
 
 
 def danceDB_emotions():
-    # co pilot is really good at guessing emotions combinations
+    # co pilot is really good at guessing emotions combinations?
     return {
         'Happy': {'Happiness': 1.0},
         'Miserable': {'Sad': 1.0},
@@ -393,12 +393,11 @@ def danceDB_emotions():
     }
 
 def encode_danceDB_emotion(emotion):
-    
     emotion_labels = ['Anger', 'Disgust', 'Fear', 'Happiness', 'Neutral', 'Sad', 'Surprise']
     
     emotion_mapping = danceDB_emotions()
     if emotion not in emotion_mapping:
-        print(emotion)
+        print(f"Emotion not found in mapping: {emotion}")
         return "Emotion not found in mapping"
     
     encoding = [0.0] * len(emotion_labels)
@@ -406,16 +405,30 @@ def encode_danceDB_emotion(emotion):
         if emotion_label in emotion_labels:
             index = emotion_labels.index(emotion_label)
             encoding[index] = percentage
-    
+
     return encoding
 
+def add_noise_to_emotions(emotion_list):
+    # This function adds noise to a list of emotion encodings
+    # Each encoding should sum to 1 after noise addition
+    
+    def add_noise(encoding):
+        # Generate noise that sums up to 10% of the total
+        noise = np.random.random(len(encoding))
+        noise *= 0.1 / noise.sum()  # Scale the noise to sum up to 0.1
+        noisy_encoding = encoding + noise
+        # Normalize the encoding so that it sums to 1
+        return noisy_encoding / noisy_encoding.sum()
+    
+    # Apply the add_noise function to each encoding in the list
+    return np.array([add_noise(np.array(encoding)) for encoding in emotion_list])
 
-# Programmatic functions
+# Programmatic functions------------------------------------
 
 def stratified_split(data, emotions, test_size=0.1):
     # Organize data by class
     class_data = {}
-    for video_index, video in enumerate(data):
+    for video_index, _ in enumerate(data):
         # Convert the emotion list to a tuple to be used as a dictionary key
         emotion = tuple(emotions[video_index])
         if emotion not in class_data:
@@ -483,39 +496,48 @@ def compute_threshold(dataset):
 
     return threshold
 
+def get_meed_files()-> list:
+    direction = ['left', 'right', 'front']
+    meed_files = []
+    for d in direction:
+        meed_files.extend(glob.glob(f"G:/UAL_Thesis/affective_computing_datasets/multiview-emotional-expressions-dataset/*/{d}_*/processed_data.json"))
+    return meed_files
+
+def get_dance_db_files() -> list:
+    emotions_set = {
+        'Happy', 'Miserable', 'Relaxed', 'Sad', 'Satisfied', 'Tired', 
+        'Excited', 'Afraid', 'Angry', 'Annoyed', 'Bored', 'Pleased',
+        'Neutral', 'Nervous', 'Mix', 'Curiosity'
+    }   
+    path_pattern = "G:\\UAL_Thesis\\affective_computing_datasets\\DanceDBrenders\\DanceDB\\*\\*_keypoints.txt"
+    all_files = glob.glob(path_pattern)
+    dance_db_files = [file for file in all_files for emotion in emotions_set if emotion.lower() in file.lower()]
+    return dance_db_files
 
 def prep_data(dataset):
     print(f"Preparing data for {dataset}...")
     
     if dataset == "MEED":
-        # load and preprocess data
-        direction = ['left','right','front']
-        files = []
-
-        for d in direction:
-            files.extend(glob.glob(f"G:/UAL_Thesis/affective_computing_datasets/multiview-emotional-expressions-dataset/*/{d}_*/processed_data.json"))
+        meed_files = get_meed_files()
+        processed_data =preprocess_data(meed_files, dataset)
 
     elif dataset == "DanceDB":
-        emotions_set = {
-        'Happy', 'Miserable', 'Relaxed', 'Sad', 'Satisfied', 'Tired', 
-        'Excited', 'Afraid', 'Angry', 'Annoyed', 'Bored', 'Pleased',
-        'Neutral', 'Nervous', 'Mix', 'Curiosity'
-        }   
+        dance_db_files = get_dance_db_files()
+        processed_data = preprocess_data(dance_db_files, dataset)
 
-        # Define the path pattern to load the files
-        path_pattern = "G:\\UAL_Thesis\\affective_computing_datasets\\DanceDBrenders\\DanceDB\\*\\*_keypoints.txt"
-        # Get the list of all files that match the pattern
-        all_files = glob.glob(path_pattern)
-        # Filter the files based on the keywords in emotions_set and return the matched emotion
-        files = [file for file in all_files for emotion in emotions_set if emotion.lower() in file.lower()]
-
-    processed_data = preprocess_data(files, dataset=dataset)
+    elif dataset == 'all':
+        meed_files = get_meed_files()
+        dance_db_files = get_dance_db_files()
+        processed_data_MEED = preprocess_data(meed_files, 'MEED')
+        processed_data_danceDB = preprocess_data(dance_db_files, 'DanceDB')
+        processed_data = {key: processed_data_MEED[key] + processed_data_danceDB[key] for key in processed_data_MEED}
     
     x_list = processed_data['x']
     y_list = processed_data['y']
     dx_list = processed_data['dx']
     dy_list = processed_data['dy']
-    emotions_labels = processed_data['emotions']
+    emotion_vectors = processed_data['emotions']
+    
     
     # prepare data for training - deltas from now on
     global max_x, min_x, max_y, min_y
@@ -536,25 +558,16 @@ def prep_data(dataset):
     data = add_delta_to_frames(kp_frames, dkp_frames)
     validate_length(data,100,message="data after delta")
     
-    all_emotions = []
-    
-    if dataset == "MEED":
-        # data shape: [video, frame, 50 kps xy + 50 deltas]
-        all_emotions = emotion_labels_to_vectors(emotions_labels)
-
-    
-    elif dataset == "DanceDB":
-        all_emotions = [encode_danceDB_emotion(emotion) for emotion in emotions_labels]
-
-    validate_length(data,100,message="data after emotions - should be the same as before")
-    
-    
     frame_dim = len(data[0][0]) # how many numbers are in each frame? - 50 kps xy + 50 deltas 
     print(f"frame_dim: {frame_dim}")
     
     global train_data, val_data
-    (train_data, train_emotions), (val_data, val_emotions) = stratified_split(data, all_emotions, test_size=0.1)
     
+    (train_data, train_emotions), (val_data, val_emotions) = stratified_split(data, emotion_vectors, test_size=0.1)
+    
+    # add noise after stratified split
+    train_emotions = add_noise_to_emotions(train_emotions)
+    val_emotions = add_noise_to_emotions(val_emotions)
     
     # calculate threshold, maybe change this to entire data instead of just train
     threshold = compute_threshold(data)
@@ -562,3 +575,8 @@ def prep_data(dataset):
     processed_data = (train_data, train_emotions, val_data, val_emotions, frame_dim, max_x, min_x, max_y, min_y, max_dx, min_dx, max_dy, min_dy, threshold)
  
     return processed_data
+
+if __name__ == "__main__":
+    print("Running data.py as main")
+    prep_data("all")
+    print("Done!")

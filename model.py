@@ -46,7 +46,7 @@ BATCH_SIZE = 8 # how many independent sequences will we process in parallel? - e
 BLOCK_SIZE = 16 # what is the maximum context length for predictions? 
 DROPOUT = 0.3
 LEARNING_RATE = 0.0001 #Initial learning rate
-EPOCHS = 10000
+EPOCHS = 200000
 FRAMES_GENERATE = 300
 TRAIN = True
 EVAL_EVERY = 1000
@@ -61,24 +61,16 @@ global train_seeds
     
 
 # NOTES---------------------------------
-notes = f"""Adding dance data DBDance Fine tuning on DBDance data.
-Finetuning epochs: {FINE_TUNING_EPOCHS}
-Finetuning LR: {FINE_TUNING_LR} + 10000 + 30000
+notes = f"""All data, added 10% noise to emotions so model is less stuck. With LeakyRelu
 
-No penalising
+No penalty.
 
-Adding scheduler to reduce learning rate if loss doesn't improve for 3 eval sets
+Added dropout to keypoints, also changed input to emotion linear to x and not just emotion (emotion + keypoints)
+-Adding dropout to keypoints seems to help diversity.
 
-# Calculate the cumulative movement over the entire sequence for each sample in the batch
-cumulative_deltas = logits_deltas.sum(dim=1)
+dropout keypoints and dropout emotion is currently equal but might change this.
 
-
-# Calculate the penalty for samples where cumulative movement is below the threshold
-penalty_mask = (cumulative_deltas < threshold).float()
-penalty = penalty_mask.mean()
-
-. So encorage model to move more. using threshold just above average delta of train data. maybe should move this to 
-entire dataset not just train data. 
+Emotions and keypoints are multimodal and added separately, but features are added in block processing using +.
 
 
 Got rid of both L1 and L2, increasing dropout because model acting weird, this is now delta + coord. 
@@ -211,7 +203,7 @@ class FeedForward(nn.Module):
         super().__init__()
         self.net = nn.Sequential(
             nn.Linear(n_emb, 4 * n_emb , device=device), # 4 * because recommended in paper residual pathway - growing residual pathway
-            nn.ReLU(),
+            nn.LeakyReLU(0.2, inplace=True), #leaky relu instead of relu because Pettee et al 2019 - alpha 0.2
             nn.Linear( 4* n_emb, n_emb , device=device), # required otherwise output will collapse  - projection back into residual pathway
             nn.Dropout(dropout)
           
@@ -252,10 +244,11 @@ class MotionModel(nn.Module):
         self.hidden_dim = hidden_dim
         self.fc1 = nn.Linear(input_dim, hidden_dim, bias=False, device=device) 
         self.fc2 = nn.Linear(hidden_dim, output_dim, bias=False,device=device)
+        self.keypoint_dropout = nn.Dropout(dropout)
         # emotions
-        self.emotion_fc = nn.Linear(emotion_dim, hidden_dim, bias=False,device=device)
-        self.emotion_dropout = nn.Dropout(dropout)
-        self.emotion_head = nn.Linear(hidden_dim, emotion_dim).to(device)  # Outputs a continuous vector for emotions
+        self.emotion_fc1 = nn.Linear(emotion_dim, hidden_dim, bias=False,device=device)
+        self.emotion_dropout = nn.Dropout(dropout) 
+        self.emotion_fc2 = nn.Linear(hidden_dim, emotion_dim,bias=False,device=device)  # Outputs a continuous vector for emotions - comes out from emotion+keypoint processing feature
         
         self.positional_encoding = positional_encoding(seq_len=blocksize, d_model=hidden_dim).to(device)
         layers = [Block(n_emb=hidden_dim, n_heads=4) for _ in range(n_layers)]
@@ -274,9 +267,10 @@ class MotionModel(nn.Module):
         keypoint_features = self.fc1(inputs) # B,T,hidden dimension
         # Add positional encoding
         keypoint_features += positional_encoding(seq_len=T, d_model=self.hidden_dim).to(device) # positional_encoding = T,hidden dimension , added = B,T,hidden dimension
+        keypoint_features = self.keypoint_dropout(keypoint_features)
         
         # Process emotion inputs
-        emotion_features = self.emotion_fc(emotions)  # B, emotion_dim to B, hidden_dim
+        emotion_features = self.emotion_fc1(emotions)  # B, emotion_dim to B, hidden_dim
         emotion_features = self.emotion_dropout(emotion_features)
         emotion_features = emotion_features.unsqueeze(1).expand(-1, T, -1)  # B, T, hidden_dim
         
@@ -297,10 +291,11 @@ class MotionModel(nn.Module):
         logits = self.fc2(x)
         
         # Output emotion logits - emotions which was used to condition the model 
-        emotion_logits = self.emotion_head(emotion_features.mean(dim=1))  # B, emotion_dim
+        emotion_logits = self.emotion_fc2(torch.mean(x, dim=1) ) #   # B, hidden_dim ,7 to  B, emotion_dim - average over time dimension
         
         if targets is None:
             loss = None
+
         
         else:
             B,T,C = inputs.shape # batch size, time, context
@@ -311,8 +306,9 @@ class MotionModel(nn.Module):
                 # if penalising model for small movements
                 if PENALTY:
                     
-                    # Current MSE loss calculation
+                    # Current MSE loss calculation - want output emotion from keypoints to be close to input emotion
                     mse_loss = F.mse_loss(logits, targets)
+                    
 
                     # Extract the magnitude of the deltas from logits
                     logits_deltas_magnitude = torch.abs(logits[:, :, 50:100])
@@ -329,6 +325,7 @@ class MotionModel(nn.Module):
 
                     # Combine the MSE loss and the penalty term to get the modified loss
                     loss = mse_loss + alpha * penalty
+                    
                 
                 else:
                     loss = F.mse_loss(logits, targets)
@@ -360,7 +357,8 @@ class MotionModel(nn.Module):
             # If they do change, you'll need to update `generated_emotions` accordingly
 
             cond_sequence = generated_sequence[:, -BLOCK_SIZE:]  # get the last block_size tokens from the generated sequence
-            logits, emotion_logits, _ = self(cond_sequence, generated_emotions)
+            logits, emotion_logits, _ = self(inputs = cond_sequence, emotions = generated_emotions)
+            # emotion_logits shape is (B, emotion_dim)
 
             next_values = logits[:, -1, :]  # Get the values from the last timestep
             # Append the predicted values to the sequence
@@ -368,9 +366,10 @@ class MotionModel(nn.Module):
 
             # Optionally collect emotion predictions if they're needed
             # Emotion predictions are not timestep dependent, so we take the last one
-            generated_emotions = emotion_logits[:, -1, :]
+            # B, emotion_dim
+          
 
-        return generated_sequence, generated_emotions
+        return generated_sequence, emotion_logits
     
 # train----------------------------------------------------
 @torch.no_grad()
@@ -495,10 +494,9 @@ def load_checkpoint(model, optimizer,checkpoint_path, scheduler = None):
 
 
 
-def visualise_skeleton(all_frames, max_x, max_y, max_frames=500, save=False, save_path=None, prefix=None, train_seed=None , delta=False, destroy = True):
+def visualise_skeleton(all_frames, max_x, max_y,emotion_vectors=None, max_frames=500, save=False, save_path=None, prefix=None, train_seed=None , delta=False, destroy = True):
     """Input all frames dim 50xn n being the number of frames 50= 25 keypoints x and y coordinates"""
 
-    
     # visualise to check if the data is correct
     # BODY_25 Keypoints
     keypointsMapping = ['Nose', 'Neck', 'R-Sho', 'R-Elb', 'R-Wr', 'L-Sho', 
@@ -584,7 +582,7 @@ def visualise_skeleton(all_frames, max_x, max_y, max_frames=500, save=False, sav
         # Extract x, y coordinates and emotion vector
         x_coords = frame_data[0:50:2] 
         y_coords = frame_data[1:50:2]
-        emotion_vector = tuple(frame_data[100:107])
+        
         
         xy_coords = list(zip(x_coords, y_coords))
         sane = sanity_check(xy_coords)
@@ -611,10 +609,41 @@ def visualise_skeleton(all_frames, max_x, max_y, max_frames=500, save=False, sav
         
         # Display the emotion percentages and labels on the top right of the frame
         
-        emotion_percentages = [f"{int(e * 100)}% {emotion_labels[i]}" for i, e in enumerate(emotion_vector) if round(e * 100) > 0]
-        
+       # Assuming emotion_vectors is a tuple (emotion_in, emotion_out)
+        emotion_in, emotion_out = emotion_vectors
+
+        # Calculate percentages for emotion_in
+        emotion_in_percentages = [
+            f"{int(e * 100)}% {emotion_labels[i]}" 
+            for i, e in enumerate(emotion_in.tolist()) if round(e * 100) > 0
+        ]
+
+
+        # Calculate percentages for emotion_out
+        emotion_out_percentages = [
+            f"{int(e * 100)}% {emotion_labels[i]}" 
+            for i, e in enumerate(emotion_out.tolist()) if round(e * 100) > 0
+        ]
+
         y0, dy = 30, 15  # Starting y position and line gap
-        for i, line in enumerate(emotion_percentages):
+
+        # Label positions
+        label_in_position = (10, y0 - dy)  # Position for 'Emotion In' label
+        label_out_position = (canvas_size[1] - 120, y0 - dy)  # Position for 'Emotion Out' label
+
+        # Place 'Emotion In' label on the left side
+        cv2.putText(canvas_copy, 'Emotion In', label_in_position, cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
+
+        # Place 'Emotion Out' label on the right side
+        cv2.putText(canvas_copy, 'Emotion Out', label_out_position, cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
+
+        # Place emotion_in percentages below the 'Emotion In' label
+        for i, line in enumerate(emotion_in_percentages):
+            y = y0 + i * dy
+            cv2.putText(canvas_copy, line, (10, y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
+
+        # Place emotion_out percentages below the 'Emotion Out' label
+        for i, line in enumerate(emotion_out_percentages):
             y = y0 + i * dy
             cv2.putText(canvas_copy, line, (canvas_size[1] - 120, y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
 
@@ -737,7 +766,7 @@ def write_notes(notes = None):
 if __name__ == "__main__":
     # NEED TO UPDATE THIS
     # Preparing MEED data for model
-    processed_data= prep_data(dataset="DanceDB")
+    processed_data= prep_data(dataset="all")
     train_data, train_emotions, val_data, val_emotions, frame_dim, max_x, min_x, max_y, min_y, max_dx, min_dx, max_dy, min_dy, threshold = processed_data
     
     
@@ -834,15 +863,16 @@ if __name__ == "__main__":
     # xb and yb should always have the same emotion - because same video
     xb, yb, eb, _ = get_batch("val", BLOCK_SIZE, BATCH_SIZE, train_data,train_emotions, val_data, val_emotions)
 
-    generated = m.generate(xb, eb, FRAMES_GENERATE)
+    generated_keypoints,generated_emotion = m.generate(xb, eb, FRAMES_GENERATE)
     # unnorm_out = unnormalise_list_2D(generated, max_x, min_x, max_y, min_y,max_dx, min_dx, max_dy, min_dy)
-    unnorm_out = unnormalise_list_2D(generated, max_x, min_x, max_y, min_y,max_x, min_x, max_y, min_y)
+    unnorm_out = unnormalise_list_2D(generated_keypoints, max_x, min_x, max_y, min_y,max_x, min_x, max_y, min_y)
     # unnorm_out = unnormalise_list_2D(xb, max_x, min_x, max_y, min_y,max_x, min_x, max_y, min_y)
     
     # visualise and save
-    for batch in unnorm_out:
-        visualise_skeleton(batch, max_x, max_y, max_frames=FRAMES_GENERATE,save = True,save_path=None,prefix=f'adam_{EPOCHS}_coord',train_seed=train_seed,delta=False)
-        visualise_skeleton(batch, max_x, max_y, max_frames=FRAMES_GENERATE,save = True,save_path=None,prefix=f'adam_{EPOCHS}_delta',train_seed=train_seed,delta=True)
+    for i,batch in enumerate(unnorm_out):
+        emotion_vectors = (eb[i],generated_emotion[i])
+        visualise_skeleton(batch, max_x, max_y,emotion_vectors, max_frames=FRAMES_GENERATE,save = True,save_path=None,prefix=f'adam_{EPOCHS}_coord',train_seed=train_seed,delta=False)
+        visualise_skeleton(batch, max_x, max_y,emotion_vectors, max_frames=FRAMES_GENERATE,save = True,save_path=None,prefix=f'adam_{EPOCHS}_delta',train_seed=train_seed,delta=True)
 
 
     if TRAIN or FINETUNE:
