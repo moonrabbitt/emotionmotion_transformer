@@ -18,6 +18,8 @@ import random
 import copy
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from data import *
+import argparse
+import sys
 
 
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
@@ -46,27 +48,30 @@ BATCH_SIZE = 8 # how many independent sequences will we process in parallel? - e
 BLOCK_SIZE = 16 # what is the maximum context length for predictions? 
 DROPOUT = 0.3
 LEARNING_RATE = 0.0001 #Initial learning rate
-EPOCHS = 200000
+EPOCHS = 10000
 FRAMES_GENERATE = 300
 TRAIN = True
 EVAL_EVERY = 1000
-CHECKPOINT_PATH = "checkpoints/proto7_checkpoint.pth"
+CHECKPOINT_PATH = "checkpoints/proto8_checkpoint.pth"
 L1_LAMBDA = None
 L2_REG=0.0
 FINETUNE = False
 FINE_TUNING_LR = 1e-5
 FINE_TUNING_EPOCHS = 100000
 PENALTY = False
+LATENT_VIS_EVERY = 1000
 global train_seeds
     
 
 # NOTES---------------------------------
-notes = f"""All data, added 10% noise to emotions so model is less stuck. With LeakyRelu
+notes = f"""Proto8 - trying to adapt Pette et al 2019, addign latent visualisation and analysing latent space. Might be slow, maybe take this out when live.
 
+All data, added 10% noise to emotions so model is less stuck. With LeakyRelu
+Loss = mse_loss(keypoints) + mse_loss(emotions) because before output emotions ( which feature was added to keypoint features) were not being matched to input emotions
 No penalty.
 
 Added dropout to keypoints, also changed input to emotion linear to x and not just emotion (emotion + keypoints)
--Adding dropout to keypoints seems to help diversity.
+Taking extra dropout for emotions and keypoints out, because want model to rely on both equally so what's the point
 
 dropout keypoints and dropout emotion is currently equal but might change this.
 
@@ -236,6 +241,17 @@ class Block(nn.Module):
         x = x + self.ffwd(self.ln2(x))
         return x
     
+class GaussianNoise(nn.Module):
+    def __init__(self, mean=0., std=1.):
+        super().__init__()
+        self.mean = mean
+        self.std = std
+    
+    def forward(self, x):
+        if self.training:
+            noise = torch.randn_like(x) * self.std + self.mean
+            return x + noise
+        return x
    
 class MotionModel(nn.Module):
     
@@ -247,7 +263,7 @@ class MotionModel(nn.Module):
         self.keypoint_dropout = nn.Dropout(dropout)
         # emotions
         self.emotion_fc1 = nn.Linear(emotion_dim, hidden_dim, bias=False,device=device)
-        self.emotion_dropout = nn.Dropout(dropout) 
+        self.emotion_dropout = nn.Dropout(dropout) # dropout for emotions
         self.emotion_fc2 = nn.Linear(hidden_dim, emotion_dim,bias=False,device=device)  # Outputs a continuous vector for emotions - comes out from emotion+keypoint processing feature
         
         self.positional_encoding = positional_encoding(seq_len=blocksize, d_model=hidden_dim).to(device)
@@ -267,11 +283,11 @@ class MotionModel(nn.Module):
         keypoint_features = self.fc1(inputs) # B,T,hidden dimension
         # Add positional encoding
         keypoint_features += positional_encoding(seq_len=T, d_model=self.hidden_dim).to(device) # positional_encoding = T,hidden dimension , added = B,T,hidden dimension
-        keypoint_features = self.keypoint_dropout(keypoint_features)
+        # keypoint_features = self.keypoint_dropout(keypoint_features)
         
         # Process emotion inputs
         emotion_features = self.emotion_fc1(emotions)  # B, emotion_dim to B, hidden_dim
-        emotion_features = self.emotion_dropout(emotion_features)
+        # emotion_features = self.emotion_dropout(emotion_features)
         emotion_features = emotion_features.unsqueeze(1).expand(-1, T, -1)  # B, T, hidden_dim
         
         
@@ -280,6 +296,9 @@ class MotionModel(nn.Module):
         # x = torch.cat((keypoint_features, emotion_features), dim=-1)  # Concatenate along the feature dimension
         x = keypoint_features + emotion_features
         x = self.blocks(x) # B,T,hidden dimension
+        
+        # Save the latent vectors
+        latent_vectors = x.detach()
         
         # Deconcatenate keypoint and emotion features
         # keypoint_features, emotion_features = x.split([self.hidden_dim, self.hidden_dim], dim=-1)
@@ -308,6 +327,7 @@ class MotionModel(nn.Module):
                     
                     # Current MSE loss calculation - want output emotion from keypoints to be close to input emotion
                     mse_loss = F.mse_loss(logits, targets)
+                    emotion_loss = F.mse_loss(emotion_logits, emotions)
                     
 
                     # Extract the magnitude of the deltas from logits
@@ -324,16 +344,16 @@ class MotionModel(nn.Module):
                     alpha = 0.01  # This value can be adjusted based on your needs
 
                     # Combine the MSE loss and the penalty term to get the modified loss
-                    loss = mse_loss + alpha * penalty
+                    loss = (mse_loss + alpha * penalty) + emotion_loss
                     
                 
                 else:
-                    loss = F.mse_loss(logits, targets)
+                    loss = F.mse_loss(logits, targets) + F.mse_loss(emotion_logits, emotions)
                 
  
             else:
                 l1_norm = sum(p.abs().sum() for p in m.parameters())  # Calculate L1 norm for all model parameters
-                loss = F.mse_loss(logits, targets) + l1_lambda * l1_norm
+                loss = (F.mse_loss(logits, targets) + l1_lambda + F.mse_loss(emotion_logits,emotions))* l1_norm
 
             # adding mask to ignore 0,0 occlusions (-inf)
             # if mask is None:
@@ -342,7 +362,8 @@ class MotionModel(nn.Module):
             # loss = F.mse_loss(logits * mask.unsqueeze(-1), targets * mask.unsqueeze(-1), reduction='sum') / mask.sum()
 
         
-        return logits,emotion_logits,loss
+        
+        return logits,emotion_logits,loss, latent_vectors
     
     def generate(self, inputs, emotions, max_new_tokens):
         # inputs is (B,T,C) array of continuous values for keypoints
@@ -762,10 +783,77 @@ def write_notes(notes = None):
 
 
 
+def parse_args(args=None):
+    parser = argparse.ArgumentParser(description='Training configuration for Motion Model.')
     
-if __name__ == "__main__":
-    # NEED TO UPDATE THIS
-    # Preparing MEED data for model
+    parser.add_argument('--BATCH_SIZE', type=int, default=8, help='Batch size for training.', dest='BATCH_SIZE')
+    parser.add_argument('--BLOCK_SIZE', type=int, default=16, help='Block size for sequence processing.', dest='BLOCK_SIZE')
+    parser.add_argument('--DROPOUT', type=float, default=0.3, help='Dropout rate for the model.', dest='DROPOUT')
+    parser.add_argument('--LEARNING_RATE', type=float, default=0.0001, help='Initial learning rate.', dest='LEARNING_RATE')
+    parser.add_argument('--EPOCHS', type=int, default=10000, help='Number of epochs to train.', dest='EPOCHS')
+    parser.add_argument('--FRAMES_GENERATE', type=int, default=300, help='Number of frames to generate.', dest='FRAMES_GENERATE')
+    parser.add_argument('--TRAIN', action='store_true', help='Flag to indicate training mode.', dest='TRAIN')
+    parser.add_argument('--EVAL_EVERY', type=int, default=1000, help='Interval of epochs to perform evaluation.', dest='EVAL_EVERY')
+    parser.add_argument('--CHECKPOINT_PATH', type=str, default="checkpoints/proto8_checkpoint.pth", help='Path to save the checkpoint.', dest='CHECKPOINT_PATH')
+    parser.add_argument('--L1_LAMBDA', type=float, default=None, help='L1 regularization lambda. Use None for no L1 regularization.', dest='L1_LAMBDA')
+    parser.add_argument('--L2_REG', type=float, default=0.0, help='L2 regularization lambda.', dest='L2_REG')
+    parser.add_argument('--FINETUNE', action='store_true', help='Flag to indicate fine-tuning mode.', dest='FINETUNE')
+    parser.add_argument('--FINE_TUNING_LR', type=float, default=1e-5, help='Learning rate for fine-tuning.', dest='FINE_TUNING_LR')
+    parser.add_argument('--FINE_TUNING_EPOCHS', type=int, default=100000, help='Number of epochs for fine-tuning.', dest='FINE_TUNING_EPOCHS')
+    parser.add_argument('--PENALTY', action='store_true', help='Flag to indicate if penalty is applied.', dest='PENALTY')
+    parser.add_argument('--LATENT_VIS_EVERY', type=int, default=1000, help='Interval of epochs to visualize latent vectors.', dest='LATENT_VIS_EVERY')
+    
+    args = parser.parse_args()
+    
+    if args is None:
+        args, unknown = parser.parse_known_args()
+    else:
+        args, unknown = parser.parse_known_args(args)
+        
+    return args
+
+# Define a function to set global variables
+def set_globals(args):
+    global BATCH_SIZE, BLOCK_SIZE, DROPOUT, LEARNING_RATE, EPOCHS, FRAMES_GENERATE, TRAIN, EVAL_EVERY, CHECKPOINT_PATH, L1_LAMBDA, L2_REG, FINETUNE, FINE_TUNING_LR, FINE_TUNING_EPOCHS, PENALTY, LATENT_VIS_EVERY
+    BATCH_SIZE = args.BATCH_SIZE
+    BLOCK_SIZE = args.BLOCK_SIZE
+    DROPOUT = args.DROPOUT
+    LEARNING_RATE = args.LEARNING_RATE
+    EPOCHS = args.EPOCHS
+    FRAMES_GENERATE = args.FRAMES_GENERATE
+    TRAIN = args.TRAIN
+    EVAL_EVERY = args.EVAL_EVERY
+    CHECKPOINT_PATH = args.CHECKPOINT_PATH
+    L1_LAMBDA = args.L1_LAMBDA
+    L2_REG = args.L2_REG
+    FINETUNE = args.FINETUNE
+    FINE_TUNING_LR = args.FINE_TUNING_LR
+    FINE_TUNING_EPOCHS = args.FINE_TUNING_EPOCHS
+    PENALTY = args.PENALTY
+    LATENT_VIS_EVERY = args.LATENT_VIS_EVERY
+    
+def is_notebook():
+    try:
+        shell = get_ipython().__class__.__name__
+        if shell == 'ZMQInteractiveShell':
+            return True   # Jupyter notebook or qtconsole
+        elif shell == 'TerminalInteractiveShell':
+            return False  # Terminal running IPython
+        else:
+            return False  # Other type (?)
+    except NameError:
+        return False      # Probably standard Python interpreter
+
+def main(args = None):
+    
+    # If args are provided, use those; otherwise, parse from command line
+    if args is None:
+        args = parse_args()
+
+    # Set the global variables based on args
+    set_globals(args)
+    # Set global variables
+    
     processed_data= prep_data(dataset="all")
     train_data, train_emotions, val_data, val_emotions, frame_dim, max_x, min_x, max_y, min_y, max_dx, min_dx, max_dy, min_dy, threshold = processed_data
     
@@ -802,13 +890,15 @@ if __name__ == "__main__":
         val_losses = []
         best_val_loss = float('inf')  # Initialize with infinity, so first instance is saved
     
+        # List to store latent vectors
+        latent_space = [] 
         
         for epoch in tqdm(range(EPOCHS), desc="Training", unit="epoch"):
             # get sample batch of data
             xb, yb, eb, _ = get_batch("train", BLOCK_SIZE, BATCH_SIZE, train_data,train_emotions, val_data, val_emotions)
           
             # evaluate loss
-            logits, emotion_logits, loss = m(xb,yb,eb)
+            logits, emotion_logits, loss, latent_vectors= m(xb,yb,eb)
             optimizer.zero_grad(set_to_none=True)
             loss.backward()
             
@@ -836,7 +926,16 @@ if __name__ == "__main__":
                         best_val_loss = losses['val']
                         save_checkpoint(model=m, optimizer=optimizer, scheduler=scheduler,epoch=epoch, loss=loss, checkpoint_path=CHECKPOINT_PATH)
                         print(f'Model {train_seed} saved!')
-            
+
+                # If you want to collect and visualize latent vectors periodically during training:
+                if epoch % LATENT_VIS_EVERY == 0:
+                    with torch.no_grad():
+                        m.eval()  # Switch to evaluation mode
+                        # Get a batch of data to visualize latent space
+                        xb, yb, eb, _ = get_batch("val", BLOCK_SIZE, BATCH_SIZE, train_data, train_emotions, val_data, val_emotions)
+                        _, _, _, latent_vectors = m(xb, yb, eb)
+                        latent_space.append(latent_vectors.cpu().numpy())
+                        m.train()  # Switch back to training mode
             
             
         # After the training loop, save the final model
@@ -852,25 +951,36 @@ if __name__ == "__main__":
         # After the training loop, plot the losses
         plot_losses(train_losses, val_losses, EPOCHS, EVAL_EVERY)
         
+        # Concatenate all collected latent vectors
+        latent_space = np.concatenate(latent_space, axis=0)
+        
     else:
         # Load the model
         print('Loading model...')
         m, optimizer, scheduler, epoch, loss, train_seed = load_checkpoint(m, optimizer, CHECKPOINT_PATH,scheduler)
         print(f"Model {train_seed} loaded from {CHECKPOINT_PATH} (epoch {epoch}, loss {loss:.6f})")
     
+    
+    
     # Generate a sequence
     print(f'Generating sequence of {FRAMES_GENERATE} frames...')
     # xb and yb should always have the same emotion - because same video
     xb, yb, eb, _ = get_batch("val", BLOCK_SIZE, BATCH_SIZE, train_data,train_emotions, val_data, val_emotions)
 
-    generated_keypoints,generated_emotion = m.generate(xb, eb, FRAMES_GENERATE)
+    emotion_in = torch.as_tensor(add_noise_to_emotions(eb.cpu().numpy(), noise_level=0.2), dtype=torch.float32).to(device)
+    B, T, C = xb.shape
+    random_indices = torch.randint(0, T, (B,))
+    xb_random_frame = xb[torch.arange(B), random_indices].unsqueeze(1) 
+    generated_keypoints,generated_emotion = m.generate(xb_random_frame, emotion_in, FRAMES_GENERATE)
     # unnorm_out = unnormalise_list_2D(generated, max_x, min_x, max_y, min_y,max_dx, min_dx, max_dy, min_dy)
     unnorm_out = unnormalise_list_2D(generated_keypoints, max_x, min_x, max_y, min_y,max_x, min_x, max_y, min_y)
     # unnorm_out = unnormalise_list_2D(xb, max_x, min_x, max_y, min_y,max_x, min_x, max_y, min_y)
     
     # visualise and save
     for i,batch in enumerate(unnorm_out):
-        emotion_vectors = (eb[i],generated_emotion[i])
+        
+        emotion_vectors = (emotion_in[i],generated_emotion[i])
+        frame = int(random.randrange(len(batch))) #only feed 1 frame in for visualisation
         visualise_skeleton(batch, max_x, max_y,emotion_vectors, max_frames=FRAMES_GENERATE,save = True,save_path=None,prefix=f'adam_{EPOCHS}_coord',train_seed=train_seed,delta=False)
         visualise_skeleton(batch, max_x, max_y,emotion_vectors, max_frames=FRAMES_GENERATE,save = True,save_path=None,prefix=f'adam_{EPOCHS}_delta',train_seed=train_seed,delta=True)
 
@@ -879,3 +989,9 @@ if __name__ == "__main__":
         write_notes(notes)
      
     print('Done!')
+    
+    if TRAIN or FINETUNE:
+        return latent_space, train_seed
+    
+if __name__ == "__main__":
+   main()

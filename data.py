@@ -408,14 +408,14 @@ def encode_danceDB_emotion(emotion):
 
     return encoding
 
-def add_noise_to_emotions(emotion_list):
+def add_noise_to_emotions(emotion_list,noise_level = 0.1):
     # This function adds noise to a list of emotion encodings
     # Each encoding should sum to 1 after noise addition
     
     def add_noise(encoding):
         # Generate noise that sums up to 10% of the total
         noise = np.random.random(len(encoding))
-        noise *= 0.1 / noise.sum()  # Scale the noise to sum up to 0.1
+        noise *= noise_level / noise.sum()  # Scale the noise to sum up to 0.1
         noisy_encoding = encoding + noise
         # Normalize the encoding so that it sums to 1
         return noisy_encoding / noisy_encoding.sum()
