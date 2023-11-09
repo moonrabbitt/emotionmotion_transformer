@@ -993,7 +993,7 @@ def main(args = None):
         emotion_vectors = (emotion_in[i],generated_emotion[i])
         frame = int(random.randrange(len(batch))) #only feed 1 frame in for visualisation
         visualise_skeleton(batch, max_x, max_y,emotion_vectors, max_frames=FRAMES_GENERATE,save = True,save_path=None,prefix=f'adam_{EPOCHS}_coord',train_seed=train_seed,delta=False)
-        visualise_skeleton(batch, max_x, max_y,emotion_vectors, max_frames=FRAMES_GENERATE,save = True,save_path=None,prefix=f'adam_{EPOCHS}_delta',train_seed=train_seed,delta=True)
+        # visualise_skeleton(batch, max_x, max_y,emotion_vectors, max_frames=FRAMES_GENERATE,save = True,save_path=None,prefix=f'adam_{EPOCHS}_delta',train_seed=train_seed,delta=True)
 
 
     if TRAIN or FINETUNE:
