@@ -274,7 +274,8 @@ class MotionModel(nn.Module):
         # fc2 transforms hidden dimension into output dimension 
         logits = self.fc2(x)
         
-        # print(f"logits shape before mdn: {logits.shape}")
+        print(f"logits shape before mdn: {logits.shape}")
+        print(logits)
         
         # Apply MDN after dense layer  - look at https://github.com/deep-dance/core/blob/27e9c555d1c85599eba835d59a79cabb99b517c0/creator/src/model.py#L59
         pi, sigma, mu = self.mdn(logits)
@@ -328,8 +329,15 @@ class MotionModel(nn.Module):
             # emotion_logits shape is (B, emotion_dim)
 
             # next_values = logits[:, -1, :]  # Get the values from the last timestep
-    
-            next_vales = mdn.sample(pi, sigma, mu)
+            
+            print(f"pi shape: {pi.shape}")
+            print(pi)
+            print(f"sigma shape: {sigma.shape}")
+            print(sigma)
+            print(f"mu shape: {mu.shape}")
+            print(mu)
+            
+            next_values = mdn.sample(pi, sigma, mu)
             # Append the predicted values to the sequence
             generated_sequence = torch.cat([generated_sequence, next_values.unsqueeze(1)], dim=1)
 

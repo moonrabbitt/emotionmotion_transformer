@@ -67,17 +67,41 @@ class MDN(nn.Module):
         return pi, sigma, mu
 
 
-def gaussian_probability(sigma, mu, target):
+def gaussian_probability(pi, sigma, mu, target):
+    """Returns the probability of `target` given MoG parameters `sigma` and `mu`.
+
+    Arguments:
+        sigma (BxGxO): The standard deviation of the Gaussians. B is the batch
+            size, G is the number of Gaussians, and O is the number of
+            dimensions per Gaussian.
+        mu (BxGxO): The means of the Gaussians. B is the batch size, G is the
+            number of Gaussians, and O is the number of dimensions per Gaussian.
+        target (BxI): A batch of target. B is the batch size and I is the number of
+            input dimensions.
+
+    Returns:
+        probabilities (BxG): The probability of each point in the probability
+            of the distribution in the corresponding sigma/mu index.
+    """
     target = target.unsqueeze(2).expand_as(sigma)
-    ret = ONEOVERSQRT2PI * torch.exp(-0.5 * ((target - mu) / sigma)**2) / sigma
-    return torch.prod(ret, 3)
+    log_ret = math.log(ONEOVERSQRT2PI) - 0.5 * ((target - mu) / sigma)**2 - torch.log(sigma)
+    print(pi.shape)
+    print(log_ret.shape)
+    log_prob = torch.log(pi) + log_ret.sum(dim = 3)
+    
+    probs = torch.exp(log_prob)
+    return probs
 
 
 def mdn_loss(pi, sigma, mu, target):
-    prob = pi * gaussian_probability(sigma, mu, target)
+    """Calculates the error, given the MoG parameters and the target
+
+    The loss is the negative log likelihood of the data given the MoG
+    parameters.
+    """
+    prob = gaussian_probability(pi, sigma, mu, target)
     nll = -torch.log(torch.sum(prob, dim=2))
     return torch.mean(nll)
-
 
 def sample(pi, sigma, mu):
     B, T, G, O = sigma.shape
