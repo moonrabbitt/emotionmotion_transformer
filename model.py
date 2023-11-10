@@ -20,6 +20,7 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 from data import *
 import argparse
 import sys
+import libs.mdn as mdn
 
 
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
@@ -215,11 +216,12 @@ class GaussianNoise(nn.Module):
    
 class MotionModel(nn.Module):
     
-    def __init__(self, input_dim, output_dim, emotion_dim=7, blocksize = 16, hidden_dim=256, n_layers=8 , dropout=0.2, device = device):
+    def __init__(self, input_dim, output_dim, emotion_dim=7, blocksize = 16, hidden_dim=256, n_layers=8 , dropout=0.2,num_gaussians=5, device = device):
         super().__init__()
         self.hidden_dim = hidden_dim
         self.fc1 = nn.Linear(input_dim, hidden_dim, bias=False, device=device) 
         self.fc2 = nn.Linear(hidden_dim, output_dim, bias=False,device=device)
+        self.mdn = mdn.MDN(output_dim,output_dim, num_gaussians)
         self.keypoint_dropout = nn.Dropout(dropout)
         # emotions
         self.emotion_fc1 = nn.Linear(emotion_dim, hidden_dim, bias=False,device=device)
@@ -257,6 +259,8 @@ class MotionModel(nn.Module):
         x = keypoint_features + emotion_features
         x = self.blocks(x) # B,T,hidden dimension
         
+        
+        
         # Save the latent vectors
         latent_vectors = x.detach()
         
@@ -264,57 +268,38 @@ class MotionModel(nn.Module):
         # keypoint_features, emotion_features = x.split([self.hidden_dim, self.hidden_dim], dim=-1)
         # keypoint_features, emotion_features = x
 
+        # WHY DO I HAVE THIS?
         x= self.lm_head(x) # B,T,hidden dimension
         
-        # fc2 transforms hidden dimension into output dimension
+        # fc2 transforms hidden dimension into output dimension 
         logits = self.fc2(x)
+        
+        
+        # Apply MDN after dense layer  - look at https://github.com/deep-dance/core/blob/27e9c555d1c85599eba835d59a79cabb99b517c0/creator/src/model.py#L59
+        pi, sigma, mu = self.mdn(logits)
+
         
         # Output emotion logits - emotions which was used to condition the model 
         emotion_logits = self.emotion_fc2(torch.mean(x, dim=1) ) #   # B, hidden_dim ,7 to  B, emotion_dim - average over time dimension
         
         if targets is None:
-            loss = None
+            # If no targets are provided, we're in inference mode and just want to sample from the MDN
+            # Here, you would write a sampling function to sample from the Gaussian mixture
+            # For now, let's return the parameters which can be used to sample later
+            return pi, sigma, mu, emotion_logits, latent_vectors
 
         
         else:
             B,T,C = inputs.shape # batch size, time, context
             # You can adjust this value based on your needs
+            
+            loss =  mdn.mdn_loss(pi, sigma, mu, targets)+ F.mse_loss(emotion_logits, emotions)
            
-            if L1_LAMBDA is None:
-                
-                # if penalising model for small movements
-                if PENALTY:
-                    
-                    # Current MSE loss calculation - want output emotion from keypoints to be close to input emotion
-                    mse_loss = F.mse_loss(logits, targets)
-                    emotion_loss = F.mse_loss(emotion_logits, emotions)
-                    
-
-                    # Extract the magnitude of the deltas from logits
-                    logits_deltas_magnitude = torch.abs(logits[:, :, 50:100])
-
-                    # Calculate the cumulative magnitude of the deltas over the entire sequence for each sample in the batch
-                    cumulative_deltas_magnitude = logits_deltas_magnitude.sum(dim=1)
-
-                    # Calculate the penalty for samples where the cumulative magnitude of deltas is below the threshold
-                    penalty_mask = (cumulative_deltas_magnitude < threshold).float()
-                    penalty = penalty_mask.mean()
-
-                    # Hyperparameter to balance the original MSE and the new penalty term
-                    alpha = 0.01  # This value can be adjusted based on your needs
-
-                    # Combine the MSE loss and the penalty term to get the modified loss
-                    loss = (mse_loss + alpha * penalty) + emotion_loss
-                    
-                
-                else:
-                    loss = F.mse_loss(logits, targets) + F.mse_loss(emotion_logits, emotions)
-                
- 
-            else:
-                l1_norm = sum(p.abs().sum() for p in m.parameters())  # Calculate L1 norm for all model parameters
-                loss = (F.mse_loss(logits, targets) + l1_lambda + F.mse_loss(emotion_logits,emotions))* l1_norm
-
+           
+            if l1_lambda > 0:
+                l1_norm = sum(p.abs().sum() for p in self.parameters())
+                loss += l1_lambda * l1_norm
+            
             # adding mask to ignore 0,0 occlusions (-inf)
             # if mask is None:
             #     mask = (inputs != float('-inf')).all(dim=-1).float() 
@@ -323,7 +308,7 @@ class MotionModel(nn.Module):
 
         
         
-        return logits,emotion_logits,loss, latent_vectors
+        return pi, sigma, mu,emotion_logits,loss, latent_vectors
     
     def generate(self, inputs, emotions, max_new_tokens):
         # inputs is (B,T,C) array of continuous values for keypoints
@@ -338,10 +323,12 @@ class MotionModel(nn.Module):
             # If they do change, you'll need to update `generated_emotions` accordingly
 
             cond_sequence = generated_sequence[:, -BLOCK_SIZE:]  # get the last block_size tokens from the generated sequence
-            logits, emotion_logits, _ ,_= self(inputs = cond_sequence, emotions = generated_emotions)
+            pi,sigma,mu, emotion_logits, _ ,_= self(inputs = cond_sequence, emotions = generated_emotions)
             # emotion_logits shape is (B, emotion_dim)
 
-            next_values = logits[:, -1, :]  # Get the values from the last timestep
+            # next_values = logits[:, -1, :]  # Get the values from the last timestep
+    
+            next_vales = mdn.sample(pi, sigma, mu)
             # Append the predicted values to the sequence
             generated_sequence = torch.cat([generated_sequence, next_values.unsqueeze(1)], dim=1)
 
@@ -858,7 +845,7 @@ def main(args = None):
 
     # Set global variables
     
-    processed_data= prep_data(dataset="all")
+    processed_data= prep_data(dataset="MEED")
     global train_data,train_emotions, val_data, val_emotions, frame_dim, max_x, min_x, max_y, min_y, max_dx, min_dx, max_dy, min_dy, threshold
     train_data, train_emotions, val_data, val_emotions, frame_dim, max_x, min_x, max_y, min_y, max_dx, min_dx, max_dy, min_dy, threshold = processed_data
     
@@ -908,7 +895,7 @@ def main(args = None):
             xb, yb, eb, _ = get_batch("train", BLOCK_SIZE, BATCH_SIZE, train_data,train_emotions, val_data, val_emotions)
           
             # evaluate loss
-            logits, emotion_logits, loss, latent_vectors= m(xb,yb,eb)
+            pi,sigma,mu, emotion_logits, loss, latent_vectors= m(xb,yb,eb)
             optimizer.zero_grad(set_to_none=True)
             loss.backward()
             
@@ -1011,17 +998,39 @@ if __name__ == "__main__":
         BLOCK_SIZE=16,
         DROPOUT=0.3,
         LEARNING_RATE=0.0001,
-        EPOCHS=10000,
+        EPOCHS=1000,
         FRAMES_GENERATE=300,
         TRAIN=True,
         EVAL_EVERY=1000,
-        CHECKPOINT_PATH="checkpoints/proto8_checkpoint.pth",
+        CHECKPOINT_PATH="checkpoints/proto8_checkpoint_MEED.pth",
         L1_LAMBDA=None,
         L2_REG=0.0,
         FINETUNE=False,
         FINE_TUNING_LR=1e-5,
         FINE_TUNING_EPOCHS=100000,
         PENALTY=False,
-        LATENT_VIS_EVERY=1000
+        LATENT_VIS_EVERY=1000,
+         # NOTES---------------------------------
+        notes = f"""Proto8 - trying to adapt Pette et al 2019, addign latent visualisation and analysing latent space. Might be slow, maybe take this out when live.
+        
+        Added MDN to increase variance of output as Bishop et al 1994. and Alemi et al 2017.
+        
+        MEED data only
+
+        All data, added 10% noise to emotions so model is less stuck. With LeakyRelu
+        Loss = mse_loss(keypoints) + mse_loss(emotions) because before output emotions ( which feature was added to keypoint features) were not being matched to input emotions
+        No penalty.
+
+        Added dropout to keypoints, also changed input to emotion linear to x and not just emotion (emotion + keypoints)
+        Taking extra dropout for emotions and keypoints out, because want model to rely on both equally so what's the point
+
+        dropout keypoints and dropout emotion is currently equal but might change this.
+
+        Emotions and keypoints are multimodal and added separately, but features are added in block processing using +.
+
+
+        Got rid of both L1 and L2, increasing dropout because model acting weird, this is now delta + coord. 
+        Delta is between next frame and current frame. So current frame is previous coord+previous delta. Last frame's delta is 0. 
+        """
     )
     latent_space, train_seed = main(args)
