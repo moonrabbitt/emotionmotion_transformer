@@ -274,8 +274,8 @@ class MotionModel(nn.Module):
         # fc2 transforms hidden dimension into output dimension 
         logits = self.fc2(x)
         
-        print(f"logits shape before mdn: {logits.shape}")
-        print(logits)
+        # print(f"logits shape before mdn: {logits.shape}")
+        # print(logits)
         
         # Apply MDN after dense layer  - look at https://github.com/deep-dance/core/blob/27e9c555d1c85599eba835d59a79cabb99b517c0/creator/src/model.py#L59
         pi, sigma, mu = self.mdn(logits)
@@ -319,8 +319,10 @@ class MotionModel(nn.Module):
 
         generated_sequence = inputs
         generated_emotions = emotions
+        
+        print('Generating new tokens...')
 
-        for _ in range(max_new_tokens):
+        for _ in tqdm(range(max_new_tokens), desc="Generating new tokens", unit="token"):
             # Assuming emotions don't change over time for generation
             # If they do change, you'll need to update `generated_emotions` accordingly
 
@@ -330,16 +332,16 @@ class MotionModel(nn.Module):
 
             # next_values = logits[:, -1, :]  # Get the values from the last timestep
             
-            print(f"pi shape: {pi.shape}")
-            print(pi)
-            print(f"sigma shape: {sigma.shape}")
-            print(sigma)
-            print(f"mu shape: {mu.shape}")
-            print(mu)
+            # print(f"pi shape: {pi.shape}")
+            # print(pi)
+            # print(f"sigma shape: {sigma.shape}")
+            # print(sigma)
+            # print(f"mu shape: {mu.shape}")
+            # print(mu)
             
             next_values = mdn.sample(pi, sigma, mu)
             # Append the predicted values to the sequence
-            generated_sequence = torch.cat([generated_sequence, next_values.unsqueeze(1)], dim=1)
+            generated_sequence = torch.cat([generated_sequence, next_values], dim=1)
 
             # Optionally collect emotion predictions if they're needed
             # Emotion predictions are not timestep dependent, so we take the last one
@@ -1010,10 +1012,10 @@ if __name__ == "__main__":
         BLOCK_SIZE=16,
         DROPOUT=0.3,
         LEARNING_RATE=0.0001,
-        EPOCHS=1000,
+        EPOCHS=100,
         FRAMES_GENERATE=300,
         TRAIN=True,
-        EVAL_EVERY=1000,
+        EVAL_EVERY=100,
         CHECKPOINT_PATH="checkpoints/proto8_checkpoint_MEED.pth",
         L1_LAMBDA=None,
         L2_REG=0.0,
