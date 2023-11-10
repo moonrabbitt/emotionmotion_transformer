@@ -216,12 +216,12 @@ class GaussianNoise(nn.Module):
    
 class MotionModel(nn.Module):
     
-    def __init__(self, input_dim, output_dim, emotion_dim=7, blocksize = 16, hidden_dim=256, n_layers=8 , dropout=0.2,num_gaussians=5, device = device):
+    def __init__(self, input_dim, output_dim, emotion_dim=7, blocksize = 16, hidden_dim=256, n_layers=8 , dropout=0.2,device = device):
         super().__init__()
         self.hidden_dim = hidden_dim
         self.fc1 = nn.Linear(input_dim, hidden_dim, bias=False, device=device) 
         self.fc2 = nn.Linear(hidden_dim, output_dim, bias=False,device=device)
-        self.mdn = mdn.MDN(output_dim,output_dim, num_gaussians)
+        self.mdn = mdn.MDN(output_dim,output_dim, num_gaussians=blocksize)
         self.keypoint_dropout = nn.Dropout(dropout)
         # emotions
         self.emotion_fc1 = nn.Linear(emotion_dim, hidden_dim, bias=False,device=device)
@@ -274,6 +274,7 @@ class MotionModel(nn.Module):
         # fc2 transforms hidden dimension into output dimension 
         logits = self.fc2(x)
         
+        # print(f"logits shape before mdn: {logits.shape}")
         
         # Apply MDN after dense layer  - look at https://github.com/deep-dance/core/blob/27e9c555d1c85599eba835d59a79cabb99b517c0/creator/src/model.py#L59
         pi, sigma, mu = self.mdn(logits)
@@ -323,7 +324,7 @@ class MotionModel(nn.Module):
             # If they do change, you'll need to update `generated_emotions` accordingly
 
             cond_sequence = generated_sequence[:, -BLOCK_SIZE:]  # get the last block_size tokens from the generated sequence
-            pi,sigma,mu, emotion_logits, _ ,_= self(inputs = cond_sequence, emotions = generated_emotions)
+            pi,sigma,mu, emotion_logits, _ = self(inputs = cond_sequence, emotions = generated_emotions)
             # emotion_logits shape is (B, emotion_dim)
 
             # next_values = logits[:, -1, :]  # Get the values from the last timestep
@@ -350,7 +351,7 @@ def estimate_loss():
         losses = torch.zeros(eval_iters)
         for k in tqdm(range(eval_iters), desc=f"Evaluating Loss", unit="batch"):
             xb, yb, eb, _ = get_batch(split, BLOCK_SIZE, BATCH_SIZE, train_data,train_emotions, val_data, val_emotions)
-            _,_, loss,_ = m(xb, yb, eb)
+            _,_,_,_, loss,_ = m(xb, yb, eb)
             losses[k] = loss.item()
         out[split] = losses.mean()
     m.train()
@@ -784,6 +785,9 @@ def set_globals(args):
     # ---------------------------------
     notes = f"""Proto8 - trying to adapt Pette et al 2019, addign latent visualisation and analysing latent space. Might be slow, maybe take this out when live.
 
+    
+    Added MDN layer to model.
+    
     All data, added 10% noise to emotions so model is less stuck. With LeakyRelu
     Loss = mse_loss(keypoints) + mse_loss(emotions) because before output emotions ( which feature was added to keypoint features) were not being matched to input emotions
     No penalty.
@@ -931,7 +935,7 @@ def main(args = None):
                         m.eval()  # Switch to evaluation mode
                         # Get a batch of data to visualize latent space
                         xb, yb, eb, _ = get_batch("val", BLOCK_SIZE, BATCH_SIZE, train_data, train_emotions, val_data, val_emotions)
-                        _, _, _, latent_vectors = m(xb, yb, eb)
+                        _,_, _, _, _, latent_vectors = m(xb, yb, eb)
                         latent_space.append(latent_vectors.cpu().numpy())
                         m.train()  # Switch back to training mode
             
