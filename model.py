@@ -1012,7 +1012,7 @@ if __name__ == "__main__":
         BLOCK_SIZE=16,
         DROPOUT=0.3,
         LEARNING_RATE=0.0001,
-        EPOCHS=100,
+        EPOCHS=10000,
         FRAMES_GENERATE=300,
         TRAIN=True,
         EVAL_EVERY=100,
