@@ -46,24 +46,28 @@ class MDN(nn.Module):
         self.out_features = out_features
         self.num_gaussians = num_gaussians
         self.pi = nn.Sequential(
-            nn.Linear(in_features, num_gaussians, device=device),
-            nn.Softmax(dim=1)  # Change to dim=1 as we will process the flattened input
+            nn.Linear(in_features, num_gaussians),  # Softmax will be applied later
+            nn.Softmax(dim=-1)  # Assuming the softmax is applied across the Gaussian dimension
         )
         self.sigma = nn.Linear(in_features, out_features * num_gaussians, device=device)
-        self.mu = nn.Linear(in_features, out_features * num_gaussians, device=device)
+        self.mu = nn.Linear(in_features, out_features * num_gaussians,device=device)
 
     def forward(self, minibatch):
         B, T, D = minibatch.shape
         minibatch_flat = minibatch.view(-1, D)  # Flatten [B, T, D] to [B*T, D]
 
-        pi_flat = nn.functional.softmax(self.pi(minibatch_flat), dim=1)
-        # change to softplus because input is normalised between -1 and 1
+        pi_flat = self.pi(minibatch_flat)
+        sigma_flat = self.sigma(minibatch_flat)
         sigma_flat = torch.nn.functional.softplus(self.sigma(minibatch_flat))
+        sigma_flat = sigma_flat + 1e-6  # Add a small epsilon to ensure positivity
         mu_flat = self.mu(minibatch_flat)
 
         pi = pi_flat.view(B, T, -1)
         sigma = sigma_flat.view(B, T, self.num_gaussians, self.out_features)
         mu = mu_flat.view(B, T, self.num_gaussians, self.out_features)
+
+        # Apply softmax over the correct dimension for pi
+        pi = nn.functional.softmax(pi, dim=-1)  # Assuming the output of self.pi is [B, T, G]
 
         return pi, sigma, mu
 
@@ -85,20 +89,55 @@ def gaussian_probability(pi, sigma, mu, target):
 
 
 def mdn_loss(pi, sigma, mu, target):
-    """Calculates the error, given the MoG parameters and the target
-
-    The loss is the negative log likelihood of the data given the MoG
-    parameters.
     """
-    # this is where it all goes wrong - the probabilities are all 0
-    prob = gaussian_probability(pi, sigma, mu, target)
-    nll = -torch.log(torch.sum(prob, dim=2))
-    return torch.mean(nll)
+    Computes the Mixture Density Network loss.
+    
+    :param pi: Mixture component weights [B, T, G]
+    :param sigma: Standard deviations of mixture components [B, T, G, O]
+    :param mu: Means of mixture components [B, T, G, O]
+    :param target: Ground truth/target tensor [B, T, O]
+    :return: loss: Scalar loss tensor
+    """
+    # Expand target to have G dimension for compatibility with pi, sigma, and mu
+    target = target.unsqueeze(2).expand_as(mu)
+    
+    # Calculate the probability density function of target
+    # Using Normal distribution with provided mu and sigma
+    normal_dist = torch.distributions.Normal(mu, sigma)
+    prob_density = torch.exp(normal_dist.log_prob(target))
+    
+    pi = pi.unsqueeze(-1)
+    # Multiply by the mixture probabilities pi
+    prob_density = prob_density * pi
+    
+    # Sum over the mixture dimension G and take log
+    prob_density = prob_density.sum(2)
+    nll = -torch.log(prob_density + 1e-6)  # Numerical stability
+    
+    # Take mean over batch and time dimensions B and T
+    loss = nll.mean()
+    
+    return loss
 
 def sample(pi, sigma, mu):
-    B, T, G, O = sigma.shape
-    pis = Categorical(pi).sample().view(B, T, 1, 1)
-    gaussian_noise = torch.randn((B, T, O), requires_grad=False, device=device)
-    variance_samples = sigma.gather(2, pis).squeeze(2)
-    mean_samples = mu.gather(2, pis).squeeze(2)
-    return gaussian_noise * variance_samples + mean_samples
+    # pi: Mixing coefficients with shape [B, T, G]
+    # sigma: Standard deviations of the Gaussians [B, T, G, O]
+    # mu: Means of the Gaussians [B, T, G, O]
+    
+    categorical = Categorical(pi)
+    mixture_indices = categorical.sample().unsqueeze(-1)  # Add an extra dimension for gather # [B, T, 1]
+    
+    # Gather the chosen mixture components' parameters
+    chosen_sigma = torch.gather(sigma, 2, mixture_indices.unsqueeze(-1).expand(-1, -1, -1, sigma.size(-1)))
+    chosen_mu = torch.gather(mu, 2, mixture_indices.unsqueeze(-1).expand(-1, -1, -1, mu.size(-1)))
+    
+    # Remove the extra G dimension since we have selected the component
+    chosen_sigma = chosen_sigma.squeeze(2)
+    chosen_mu = chosen_mu.squeeze(2)
+    
+    # Sample from the normal distributions
+    normal = torch.distributions.Normal(chosen_mu, chosen_sigma)
+    samples = normal.sample()  # [B, T, O]
+    
+    return samples
+

@@ -194,6 +194,8 @@ def add_delta_to_frames(input_frames, delta_frames):
 
 # Prepare data for training------------------------------------
 def normalize_values_2D(frames, max_val = None,min_val=None):
+    
+    # normalise -1 to 1
     """
     Takes in a list of lists (frames), returns max and min values and normalized list
     

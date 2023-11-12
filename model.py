@@ -216,12 +216,12 @@ class GaussianNoise(nn.Module):
    
 class MotionModel(nn.Module):
     
-    def __init__(self, input_dim, output_dim, emotion_dim=7, blocksize = 16, hidden_dim=256, n_layers=8 , dropout=0.2,device = device):
+    def __init__(self, input_dim, output_dim, emotion_dim=7, blocksize = 16, hidden_dim=256, n_layers=8 , num_gaussians= 5,dropout=0.2,device = device):
         super().__init__()
         self.hidden_dim = hidden_dim
         self.fc1 = nn.Linear(input_dim, hidden_dim, bias=False, device=device) 
-        self.fc2 = nn.Linear(hidden_dim, output_dim, bias=False,device=device)
-        self.mdn = mdn.MDN(output_dim,output_dim, num_gaussians=blocksize)
+        self.fc2 = nn.Linear(self.hidden_dim, output_dim, bias=False, device=device) # x num_gaussians because of mdn 
+        self.mdn = mdn.MDN(output_dim,output_dim, num_gaussians=num_gaussians)
         self.keypoint_dropout = nn.Dropout(dropout)
         # emotions
         self.emotion_fc1 = nn.Linear(emotion_dim, hidden_dim, bias=False,device=device)
@@ -252,23 +252,13 @@ class MotionModel(nn.Module):
         # emotion_features = self.emotion_dropout(emotion_features)
         emotion_features = emotion_features.unsqueeze(1).expand(-1, T, -1)  # B, T, hidden_dim
         
-        
-        # FIGURE OUT MULTIMODAL INPUT TORCH
         # Combine keypoint and emotion features
-        # x = torch.cat((keypoint_features, emotion_features), dim=-1)  # Concatenate along the feature dimension
         x = keypoint_features + emotion_features
         x = self.blocks(x) # B,T,hidden dimension
         
-        
-        
         # Save the latent vectors
         latent_vectors = x.detach()
-        
-        # Deconcatenate keypoint and emotion features
-        # keypoint_features, emotion_features = x.split([self.hidden_dim, self.hidden_dim], dim=-1)
-        # keypoint_features, emotion_features = x
 
-        # WHY DO I HAVE THIS?
         x= self.lm_head(x) # B,T,hidden dimension
         
         # fc2 transforms hidden dimension into output dimension 
@@ -280,7 +270,6 @@ class MotionModel(nn.Module):
         # Apply MDN after dense layer  - look at https://github.com/deep-dance/core/blob/27e9c555d1c85599eba835d59a79cabb99b517c0/creator/src/model.py#L59
         pi, sigma, mu = self.mdn(logits)
 
-        
         # Output emotion logits - emotions which was used to condition the model 
         emotion_logits = self.emotion_fc2(torch.mean(x, dim=1) ) #   # B, hidden_dim ,7 to  B, emotion_dim - average over time dimension
         
@@ -293,22 +282,13 @@ class MotionModel(nn.Module):
         
         else:
             B,T,C = inputs.shape # batch size, time, context
-            # You can adjust this value based on your needs - focus on mdn loss
-            
-            
-            loss =  mdn.mdn_loss(pi, sigma, mu, targets)+ (F.mse_loss(emotion_logits, emotions))*0.1
+ 
+            loss =  mdn.mdn_loss(pi, sigma, mu, targets)+ (F.mse_loss(emotion_logits, emotions)*0.1)
            
            
             if l1_lambda > 0:
                 l1_norm = sum(p.abs().sum() for p in self.parameters())
                 loss += l1_lambda * l1_norm
-            
-            # adding mask to ignore 0,0 occlusions (-inf)
-            # if mask is None:
-            #     mask = (inputs != float('-inf')).all(dim=-1).float() 
-              
-            # loss = F.mse_loss(logits * mask.unsqueeze(-1), targets * mask.unsqueeze(-1), reduction='sum') / mask.sum()
-
         
         
         return pi, sigma, mu,emotion_logits,loss, latent_vectors
@@ -1013,7 +993,7 @@ if __name__ == "__main__":
         BLOCK_SIZE=16,
         DROPOUT=0.3,
         LEARNING_RATE=0.0001,
-        EPOCHS=300000,
+        EPOCHS=300,
         FRAMES_GENERATE=30,
         TRAIN=True,
         EVAL_EVERY=1000,
