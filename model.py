@@ -293,9 +293,10 @@ class MotionModel(nn.Module):
         
         else:
             B,T,C = inputs.shape # batch size, time, context
-            # You can adjust this value based on your needs
+            # You can adjust this value based on your needs - focus on mdn loss
             
-            loss =  mdn.mdn_loss(pi, sigma, mu, targets)+ F.mse_loss(emotion_logits, emotions)
+            
+            loss =  mdn.mdn_loss(pi, sigma, mu, targets)+ (F.mse_loss(emotion_logits, emotions))*0.1
            
            
             if l1_lambda > 0:
@@ -914,7 +915,7 @@ def main(args = None):
             loss.backward()
             
             # Clip gradients
-            nn.utils.clip_grad_norm_(m.parameters(), max_norm=1)
+            # nn.utils.clip_grad_norm_(m.parameters(), max_norm=1)
 
             
             optimizer.step()
@@ -1012,10 +1013,10 @@ if __name__ == "__main__":
         BLOCK_SIZE=16,
         DROPOUT=0.3,
         LEARNING_RATE=0.0001,
-        EPOCHS=10000,
-        FRAMES_GENERATE=300,
+        EPOCHS=300000,
+        FRAMES_GENERATE=30,
         TRAIN=True,
-        EVAL_EVERY=100,
+        EVAL_EVERY=1000,
         CHECKPOINT_PATH="checkpoints/proto8_checkpoint_MEED.pth",
         L1_LAMBDA=None,
         L2_REG=0.0,
