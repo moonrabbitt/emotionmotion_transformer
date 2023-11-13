@@ -266,11 +266,7 @@ class MotionModel(nn.Module):
             pi, sigma, mu = self.mdn(logits) #fine
         
         if targets is None:
-            if USE_MDN:
-                loss = None
-              
-            else:
-                loss = None
+            loss = None
            
         
         else:
@@ -314,7 +310,7 @@ class MotionModel(nn.Module):
 
            
         if USE_MDN:
-            return pi, sigma, mu,logits, loss,latent_vectors
+            return pi, sigma, mu,emotion_logits, loss,latent_vectors
         else:
             return logits,emotion_logits,loss,latent_vectors
     
@@ -337,6 +333,7 @@ class MotionModel(nn.Module):
                 
                 generated_sequence = torch.cat([generated_sequence, next_values], dim=1)
                 
+                
                  # emotion_logits shape is (B, emotion_dim)
 
             else:
@@ -350,8 +347,10 @@ class MotionModel(nn.Module):
             # Optionally collect emotion predictions if they're needed
             # Emotion predictions are not timestep dependent, so we take the last one
             
+            generated_emotions = emotion_logits
+            
 
-        return generated_sequence, emotion_logits
+        return generated_sequence, generated_emotions
     
 # train----------------------------------------------------
 @torch.no_grad()
@@ -606,6 +605,7 @@ def visualise_skeleton(all_frames, max_x, max_y,emotion_vectors=None, max_frames
 
 
         # Calculate percentages for emotion_out
+        
         emotion_out_percentages = [
             f"{int(e * 100)}% {emotion_labels[i]}" 
             for i, e in enumerate(emotion_out.tolist()) if round(e * 100) > 0
@@ -1035,9 +1035,9 @@ if __name__ == "__main__":
         BLOCK_SIZE=16,
         DROPOUT=0.2,
         LEARNING_RATE=0.0001,
-        EPOCHS=1000,
-        FRAMES_GENERATE=300,
-        TRAIN=True,
+        EPOCHS=50000,
+        FRAMES_GENERATE=30,
+        TRAIN=False,
         EVAL_EVERY=1000,
         CHECKPOINT_PATH="checkpoints/proto8_checkpoint.pth",
         L1_LAMBDA=None,
