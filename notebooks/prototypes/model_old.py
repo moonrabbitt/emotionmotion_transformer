@@ -18,10 +18,7 @@ import random
 import copy
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from data import *
-import argparse
-import sys
 import libs.mdn as mdn
-
 
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
@@ -42,7 +39,55 @@ os.chdir(root_dir)
 # Check if the current working directory was set correctly
 print(os.getcwd())
 
+# HYPERPARAMETERS------------------
 
+torch.manual_seed(1337)
+BATCH_SIZE = 8 # how many independent sequences will we process in parallel? - every forward and backward pass in transformer
+BLOCK_SIZE = 16 # what is the maximum context length for predictions? 
+DROPOUT = 0.3
+LEARNING_RATE = 0.0001 #Initial learning rate
+EPOCHS = 10000
+FRAMES_GENERATE = 300
+TRAIN = False
+EVAL_EVERY = 1000
+CHECKPOINT_PATH = "checkpoints/proto7_checkpoint.pth"
+L1_LAMBDA = None
+L2_REG=0.0
+FINETUNE = False
+FINE_TUNING_LR = 1e-5
+FINE_TUNING_EPOCHS = 100000
+PENALTY = False
+    
+global USE_MDN 
+USE_MDN = True
+global train_seeds
+    
+
+# NOTES---------------------------------
+notes = f"""Adding dance data DBDance Fine tuning on DBDance data.
+Finetuning epochs: {FINE_TUNING_EPOCHS}
+Finetuning LR: {FINE_TUNING_LR} + 10000 + 30000
+
+No penalising
+
+Adding scheduler to reduce learning rate if loss doesn't improve for 3 eval sets
+
+# Calculate the cumulative movement over the entire sequence for each sample in the batch
+cumulative_deltas = logits_deltas.sum(dim=1)
+
+
+# Calculate the penalty for samples where cumulative movement is below the threshold
+penalty_mask = (cumulative_deltas < threshold).float()
+penalty = penalty_mask.mean()
+
+. So encorage model to move more. using threshold just above average delta of train data. maybe should move this to 
+entire dataset not just train data. 
+
+
+Got rid of both L1 and L2, increasing dropout because model acting weird, this is now delta + coord. 
+Delta is between next frame and current frame. So current frame is previous coord+previous delta. Last frame's delta is 0. 
+Hyperparams: {BATCH_SIZE} batch size, {BLOCK_SIZE} block size, {DROPOUT} dropout, {LEARNING_RATE} learning rate, {EPOCHS} epochs, {FRAMES_GENERATE} frames generated, {TRAIN} train, {EVAL_EVERY} eval every, {CHECKPOINT_PATH} checkpoint path, {L1_LAMBDA} L1 lambda, {L2_REG} L2 reg"""
+# ---------------------------------
 
 # Functions--------------------------------------------------
 
@@ -169,7 +214,7 @@ class FeedForward(nn.Module):
         super().__init__()
         self.net = nn.Sequential(
             nn.Linear(n_emb, 4 * n_emb , device=device), # 4 * because recommended in paper residual pathway - growing residual pathway
-            nn.LeakyReLU(0.2, inplace=True), #leaky relu instead of relu because Pettee et al 2019 - alpha 0.2
+            nn.ReLU(),
             nn.Linear( 4* n_emb, n_emb , device=device), # required otherwise output will collapse  - projection back into residual pathway
             nn.Dropout(dropout)
           
@@ -201,8 +246,7 @@ class Block(nn.Module):
         x = x + self.sa(self.ln1(x))
         x = x + self.ffwd(self.ln2(x))
         return x
-    
-   
+
 class MotionModel(nn.Module):
     
     def __init__(self, input_dim, output_dim, emotion_dim=7, blocksize = 16, hidden_dim=256, n_layers=8 , dropout=0.2, device = device):
@@ -341,7 +385,7 @@ class MotionModel(nn.Module):
 
             else:
                 # without MDN
-                logits, emotion_logits, _ ,_= self(inputs = cond_sequence, emotions = generated_emotions)
+                logits, emotion_logits, _ = self(inputs = cond_sequence, emotions = generated_emotions)
                 next_values = logits[:, -1, :]  # get the last token from the logits
             
                 # Append the predicted values to the sequence
@@ -372,7 +416,6 @@ def estimate_loss():
         out[split] = losses.mean()
     m.train()
     return out
-
 
 # test----------------------------------------------------
 def unnormalise_list_2D(data_tensor, max_x, min_x, max_y, min_y, max_dx, min_dx, max_dy, min_dy):
@@ -409,7 +452,7 @@ def unnormalise_list_2D(data_tensor, max_x, min_x, max_y, min_y, max_dx, min_dx,
         all_frames.append(batch_frames)
     return all_frames
 
-def plot_losses(train_losses, val_losses, EPOCHS, spacing,train_seed, max_ticks=10):
+def plot_losses(train_losses, val_losses, EPOCHS, spacing, max_ticks=10):
     plt.figure(figsize=(12,6))
     
     # Calculate x-axis values for the epochs based on the original spacing
@@ -480,9 +523,10 @@ def load_checkpoint(model, optimizer,checkpoint_path, scheduler = None):
 
 
 
-def visualise_skeleton(all_frames, max_x, max_y,emotion_vectors=None, max_frames=500, save=False, save_path=None, prefix=None, train_seed=None , delta=False, destroy = True):
+def visualise_skeleton(all_frames, max_x, max_y, max_frames=500, save=False, save_path=None, prefix=None, train_seed=None , delta=False, destroy = True):
     """Input all frames dim 50xn n being the number of frames 50= 25 keypoints x and y coordinates"""
 
+    
     # visualise to check if the data is correct
     # BODY_25 Keypoints
     keypointsMapping = ['Nose', 'Neck', 'R-Sho', 'R-Elb', 'R-Wr', 'L-Sho', 
@@ -568,7 +612,7 @@ def visualise_skeleton(all_frames, max_x, max_y,emotion_vectors=None, max_frames
         # Extract x, y coordinates and emotion vector
         x_coords = frame_data[0:50:2] 
         y_coords = frame_data[1:50:2]
-        
+        emotion_vector = tuple(frame_data[100:107])
         
         xy_coords = list(zip(x_coords, y_coords))
         sane = sanity_check(xy_coords)
@@ -595,41 +639,10 @@ def visualise_skeleton(all_frames, max_x, max_y,emotion_vectors=None, max_frames
         
         # Display the emotion percentages and labels on the top right of the frame
         
-       # Assuming emotion_vectors is a tuple (emotion_in, emotion_out)
-        emotion_in, emotion_out = emotion_vectors
-
-        # Calculate percentages for emotion_in
-        emotion_in_percentages = [
-            f"{int(e * 100)}% {emotion_labels[i]}" 
-            for i, e in enumerate(emotion_in.tolist()) if round(e * 100) > 0
-        ]
-
-
-        # Calculate percentages for emotion_out
-        emotion_out_percentages = [
-            f"{int(e * 100)}% {emotion_labels[i]}" 
-            for i, e in enumerate(emotion_out.tolist()) if round(e * 100) > 0
-        ]
-
+        emotion_percentages = [f"{int(e * 100)}% {emotion_labels[i]}" for i, e in enumerate(emotion_vector) if round(e * 100) > 0]
+        
         y0, dy = 30, 15  # Starting y position and line gap
-
-        # Label positions
-        label_in_position = (10, y0 - dy)  # Position for 'Emotion In' label
-        label_out_position = (canvas_size[1] - 120, y0 - dy)  # Position for 'Emotion Out' label
-
-        # Place 'Emotion In' label on the left side
-        cv2.putText(canvas_copy, 'Emotion In', label_in_position, cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
-
-        # Place 'Emotion Out' label on the right side
-        cv2.putText(canvas_copy, 'Emotion Out', label_out_position, cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
-
-        # Place emotion_in percentages below the 'Emotion In' label
-        for i, line in enumerate(emotion_in_percentages):
-            y = y0 + i * dy
-            cv2.putText(canvas_copy, line, (10, y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
-
-        # Place emotion_out percentages below the 'Emotion Out' label
-        for i, line in enumerate(emotion_out_percentages):
+        for i, line in enumerate(emotion_percentages):
             y = y0 + i * dy
             cv2.putText(canvas_copy, line, (canvas_size[1] - 120, y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
 
@@ -748,145 +761,23 @@ def write_notes(notes = None):
 
 
 
-def parse_args(args=None):
-    parser = argparse.ArgumentParser(description='Training configuration for Motion Model.')
     
-    parser.add_argument('--BATCH_SIZE', type=int, default=8, help='Batch size for training.', dest='BATCH_SIZE')
-    parser.add_argument('--BLOCK_SIZE', type=int, default=16, help='Block size for sequence processing.', dest='BLOCK_SIZE')
-    parser.add_argument('--DROPOUT', type=float, default=0.3, help='Dropout rate for the model.', dest='DROPOUT')
-    parser.add_argument('--LEARNING_RATE', type=float, default=0.0001, help='Initial learning rate.', dest='LEARNING_RATE')
-    parser.add_argument('--EPOCHS', type=int, default=10000, help='Number of epochs to train.', dest='EPOCHS')
-    parser.add_argument('--FRAMES_GENERATE', type=int, default=300, help='Number of frames to generate.', dest='FRAMES_GENERATE')
-    parser.add_argument('--TRAIN', action='store_true', help='Flag to indicate training mode.', dest='TRAIN')
-    parser.add_argument('--EVAL_EVERY', type=int, default=1000, help='Interval of epochs to perform evaluation.', dest='EVAL_EVERY')
-    parser.add_argument('--CHECKPOINT_PATH', type=str, default="checkpoints/proto8_checkpoint.pth", help='Path to save the checkpoint.', dest='CHECKPOINT_PATH')
-    parser.add_argument('--L1_LAMBDA', type=float, default=None, help='L1 regularization lambda. Use None for no L1 regularization.', dest='L1_LAMBDA')
-    parser.add_argument('--L2_REG', type=float, default=0.0, help='L2 regularization lambda.', dest='L2_REG')
-    parser.add_argument('--FINETUNE', action='store_true', help='Flag to indicate fine-tuning mode.', dest='FINETUNE')
-    parser.add_argument('--FINE_TUNING_LR', type=float, default=1e-5, help='Learning rate for fine-tuning.', dest='FINE_TUNING_LR')
-    parser.add_argument('--FINE_TUNING_EPOCHS', type=int, default=100000, help='Number of epochs for fine-tuning.', dest='FINE_TUNING_EPOCHS')
-    parser.add_argument('--PENALTY', action='store_true', help='Flag to indicate if penalty is applied.', dest='PENALTY')
-    parser.add_argument('--LATENT_VIS_EVERY', type=int, default=1000, help='Interval of epochs to visualize latent vectors.', dest='LATENT_VIS_EVERY')
-    parser.add_argument('--USE_MDN', action='store_true', help='Flag to indicate if MDN layer is used.', dest='USE_MDN')
-    parser.add_argument('--notes', type=str, default=None, help='Notes to save with the model.', dest='notes')
-    
-    args = parser.parse_args()
-    
-    if args is None:
-        args, unknown = parser.parse_known_args()
-    else:
-        args, unknown = parser.parse_known_args(args)
-        
-    return args
-
-# Define a function to set global variables
-def set_globals(args):
-    global BATCH_SIZE, BLOCK_SIZE, DROPOUT, LEARNING_RATE, EPOCHS, FRAMES_GENERATE, TRAIN, EVAL_EVERY, CHECKPOINT_PATH, L1_LAMBDA, L2_REG, FINETUNE, FINE_TUNING_LR, FINE_TUNING_EPOCHS, PENALTY, LATENT_VIS_EVERY, notes,USE_MDN
-    BATCH_SIZE = args.BATCH_SIZE
-    BLOCK_SIZE = args.BLOCK_SIZE
-    DROPOUT = args.DROPOUT
-    LEARNING_RATE = args.LEARNING_RATE
-    EPOCHS = args.EPOCHS
-    FRAMES_GENERATE = args.FRAMES_GENERATE
-    TRAIN = args.TRAIN
-    EVAL_EVERY = args.EVAL_EVERY
-    CHECKPOINT_PATH = args.CHECKPOINT_PATH
-    L1_LAMBDA = args.L1_LAMBDA
-    L2_REG = args.L2_REG
-    FINETUNE = args.FINETUNE
-    FINE_TUNING_LR = args.FINE_TUNING_LR
-    FINE_TUNING_EPOCHS = args.FINE_TUNING_EPOCHS
-    PENALTY = args.PENALTY
-    LATENT_VIS_EVERY = args.LATENT_VIS_EVERY
-    USE_MDN = args.USE_MDN
-    notes = args.notes
-    
-    # ---------------------------------
-    notes = f"""Proto8 - trying to adapt Pette et al 2019, addign latent visualisation and analysing latent space. Might be slow, maybe take this out when live.
-
-    
-    Added MDN layer to model.
-    
-    All data, added 10% noise to emotions so model is less stuck. With LeakyRelu
-    Loss = mse_loss(keypoints) + mse_loss(emotions) because before output emotions ( which feature was added to keypoint features) were not being matched to input emotions
-    No penalty.
-
-    Added dropout to keypoints, also changed input to emotion linear to x and not just emotion (emotion + keypoints)
-    Taking extra dropout for emotions and keypoints out, because want model to rely on both equally so what's the point
-
-    dropout keypoints and dropout emotion is currently equal but might change this.
-
-    Emotions and keypoints are multimodal and added separately, but features are added in block processing using +.
-
-
-    Got rid of both L1 and L2, increasing dropout because model acting weird, this is now delta + coord. 
-    Delta is between next frame and current frame. So current frame is previous coord+previous delta. Last frame's delta is 0. 
-    
-    {BATCH_SIZE} batch size, {BLOCK_SIZE} block size, {DROPOUT} dropout, {LEARNING_RATE} learning rate, {EPOCHS} epochs, {FRAMES_GENERATE} frames generated, {TRAIN} train, {EVAL_EVERY} eval every, {CHECKPOINT_PATH} checkpoint path, {L1_LAMBDA} L1 lambda, {L2_REG} L2 reg"""
-    # ---------------------------------
-    
-    # Print the values using f-string for formatting
-    print(f"""
-    Batch size set to: {BATCH_SIZE}
-    Block size set to: {BLOCK_SIZE}
-    Dropout rate set to: {DROPOUT}
-    Learning rate set to: {LEARNING_RATE}
-    Number of epochs set to: {EPOCHS}
-    Frames to generate set to: {FRAMES_GENERATE}
-    Training mode set to: {TRAIN}
-    Evaluation every set to: {EVAL_EVERY}
-    Checkpoint path set to: {CHECKPOINT_PATH}
-    L1 regularization lambda set to: {L1_LAMBDA}
-    L2 regularization lambda set to: {L2_REG}
-    Fine-tuning mode set to: {FINETUNE}
-    Fine-tuning learning rate set to: {FINE_TUNING_LR}
-    Fine-tuning epochs set to: {FINE_TUNING_EPOCHS}
-    Penalty flag set to: {PENALTY}
-    Latent visualization every set to: {LATENT_VIS_EVERY}
-    Use MDN flag set to: {USE_MDN}
-    """)
-    
-def is_notebook():
-    try:
-        shell = get_ipython().__class__.__name__
-        if shell == 'ZMQInteractiveShell':
-            return True   # Jupyter notebook or qtconsole
-        elif shell == 'TerminalInteractiveShell':
-            return False  # Terminal running IPython
-        else:
-            return False  # Other type (?)
-    except NameError:
-        return False      # Probably standard Python interpreter
-
-def main(args = None):
-    
-    # If args are provided, use those; otherwise, parse from command line
-    if args is None:
-        args = parse_args()
-
-    # Set the global variables based on args
-    set_globals(args)
-
-    # Set global variables
-    
+if __name__ == "__main__":
+    # NEED TO UPDATE THIS
+    # Preparing MEED data for model
     processed_data= prep_data(dataset="MEED")
-    global train_data,train_emotions, val_data, val_emotions, frame_dim, max_x, min_x, max_y, min_y, max_dx, min_dx, max_dy, min_dy, threshold
     train_data, train_emotions, val_data, val_emotions, frame_dim, max_x, min_x, max_y, min_y, max_dx, min_dx, max_dy, min_dy, threshold = processed_data
     
     
     
     # create model
-    global m
     m = MotionModel(input_dim=frame_dim, output_dim=frame_dim,emotion_dim=7, blocksize=BLOCK_SIZE, hidden_dim=512, n_layers=8, dropout=DROPOUT)
     m = m.to(device)
-    
-    global train_seed
     
     if FINETUNE:
         
         # Set lower learning rate for fine-tuning
         optimizer = torch.optim.Adam(m.parameters(), lr=FINE_TUNING_LR, weight_decay=L2_REG)
-        global EPOCHS
         EPOCHS = FINE_TUNING_EPOCHS
         
         # Load pre-trained model weights for fine-tuning
@@ -896,7 +787,6 @@ def main(args = None):
     else:
         # Training from scratch
         optimizer = torch.optim.Adam(m.parameters(), lr=LEARNING_RATE, weight_decay=L2_REG)
-        
 
     scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=3, verbose=True)
     
@@ -911,8 +801,6 @@ def main(args = None):
         val_losses = []
         best_val_loss = float('inf')  # Initialize with infinity, so first instance is saved
     
-        # List to store latent vectors
-        latent_space = [] 
         
         for epoch in tqdm(range(EPOCHS), desc="Training", unit="epoch"):
             # get sample batch of data
@@ -920,15 +808,14 @@ def main(args = None):
           
             # evaluate loss
             if USE_MDN:
-                pi, sigma, mu, emotion_logits, loss, latent_vectors = m(xb, yb, eb)
+                pi, sigma, mu,logits, loss,_ = m(xb,yb,eb)
             else:
-                logits,emotion_logits,loss,latent_vectors = m(xb,yb,eb)
-            
+                logits, emotion_logits, loss,_ = m(xb,yb,eb)
             optimizer.zero_grad(set_to_none=True)
             loss.backward()
             
             # Clip gradients
-            # nn.utils.clip_grad_norm_(m.parameters(), max_norm=1)
+            nn.utils.clip_grad_norm_(m.parameters(), max_norm=1)
 
             
             optimizer.step()
@@ -938,7 +825,6 @@ def main(args = None):
                 losses = estimate_loss()
                 scheduler.step(losses['val'])
                 print(f"\nTrain loss: {losses['train']:.6f} val loss: {losses['val']:.6f}")
-                global notes
                 notes += f"""\nEPOCH:{epoch} \nTrain loss: {losses['train']:.6f} val loss: {losses['val']:.6f}"""
                 if (epoch != 0):
                     # Store the losses for plotting
@@ -952,22 +838,7 @@ def main(args = None):
                         best_val_loss = losses['val']
                         save_checkpoint(model=m, optimizer=optimizer, scheduler=scheduler,epoch=epoch, loss=loss, checkpoint_path=CHECKPOINT_PATH)
                         print(f'Model {train_seed} saved!')
-
-                # If you want to collect and visualize latent vectors periodically during training:
-                if epoch % LATENT_VIS_EVERY == 0:
-                    with torch.no_grad():
-                        m.eval()  # Switch to evaluation mode
-                        # Get a batch of data to visualize latent space
-                        xb, yb, eb, _ = get_batch("val", BLOCK_SIZE, BATCH_SIZE, train_data, train_emotions, val_data, val_emotions)
-                        
-                        if USE_MDN:
-                            _,_, _, _, _, latent_vectors = m(xb, yb, eb)
-                        
-                        else: 
-                            _,_,_,latent_vectors = m(xb,yb,eb)
-                            
-                        latent_space.append(latent_vectors.cpu().numpy())
-                        m.train()  # Switch back to training mode
+            
             
             
         # After the training loop, save the final model
@@ -981,10 +852,7 @@ def main(args = None):
         except IndexError:
             print('No validation losses to save!')
         # After the training loop, plot the losses
-        plot_losses(train_losses, val_losses, EPOCHS, EVAL_EVERY,train_seed)
-        
-        # Concatenate all collected latent vectors
-        latent_space = np.concatenate(latent_space, axis=0)
+        plot_losses(train_losses, val_losses, EPOCHS, EVAL_EVERY)
         
     else:
         # Load the model
@@ -992,84 +860,23 @@ def main(args = None):
         m, optimizer, scheduler, epoch, loss, train_seed = load_checkpoint(m, optimizer, CHECKPOINT_PATH,scheduler)
         print(f"Model {train_seed} loaded from {CHECKPOINT_PATH} (epoch {epoch}, loss {loss:.6f})")
     
-    
-    
     # Generate a sequence
     print(f'Generating sequence of {FRAMES_GENERATE} frames...')
     # xb and yb should always have the same emotion - because same video
     xb, yb, eb, _ = get_batch("val", BLOCK_SIZE, BATCH_SIZE, train_data,train_emotions, val_data, val_emotions)
 
-    emotion_in = torch.as_tensor(add_noise_to_emotions(eb.cpu().numpy(), noise_level=0.2), dtype=torch.float32).to(device)
-    B, T, C = xb.shape
-    random_indices = torch.randint(0, T, (B,))
-    xb_random_frame = xb[torch.arange(B), random_indices].unsqueeze(1) 
-    # generated_keypoints,generated_emotion = m.generate(xb_random_frame, emotion_in, FRAMES_GENERATE)
-    generated_keypoints,generated_emotion = m.generate(xb, emotion_in, FRAMES_GENERATE)
+    generated_keypoints,generated_emotion = m.generate(xb, eb, FRAMES_GENERATE)
     # unnorm_out = unnormalise_list_2D(generated, max_x, min_x, max_y, min_y,max_dx, min_dx, max_dy, min_dy)
     unnorm_out = unnormalise_list_2D(generated_keypoints, max_x, min_x, max_y, min_y,max_x, min_x, max_y, min_y)
     # unnorm_out = unnormalise_list_2D(xb, max_x, min_x, max_y, min_y,max_x, min_x, max_y, min_y)
     
     # visualise and save
-    for i,batch in enumerate(unnorm_out):
-        
-        emotion_vectors = (emotion_in[i],generated_emotion[i])
-        frame = int(random.randrange(len(batch))) #only feed 1 frame in for visualisation
-        visualise_skeleton(batch, max_x, max_y,emotion_vectors, max_frames=FRAMES_GENERATE,save = True,save_path=None,prefix=f'adam_{EPOCHS}_coord',train_seed=train_seed,delta=False)
-        # visualise_skeleton(batch, max_x, max_y,emotion_vectors, max_frames=FRAMES_GENERATE,save = True,save_path=None,prefix=f'adam_{EPOCHS}_delta',train_seed=train_seed,delta=True)
+    for batch in unnorm_out:
+        visualise_skeleton(batch, max_x, max_y, max_frames=FRAMES_GENERATE,save = True,save_path=None,prefix=f'adam_{EPOCHS}_coord',train_seed=train_seed,delta=False)
+        visualise_skeleton(batch, max_x, max_y, max_frames=FRAMES_GENERATE,save = True,save_path=None,prefix=f'adam_{EPOCHS}_delta',train_seed=train_seed,delta=True)
 
 
     if TRAIN or FINETUNE:
         write_notes(notes)
      
     print('Done!')
-    
-    if TRAIN or FINETUNE:
-        return latent_space, train_seed
-    else:
-        return None, train_seed
-    
-if __name__ == "__main__":
-    # Define the arguments you want to pass
-    args = argparse.Namespace(
-        BATCH_SIZE=8,
-        BLOCK_SIZE=16,
-        DROPOUT=0.2,
-        LEARNING_RATE=0.0001,
-        EPOCHS=1000,
-        FRAMES_GENERATE=300,
-        TRAIN=True,
-        EVAL_EVERY=1000,
-        CHECKPOINT_PATH="checkpoints/proto8_checkpoint.pth",
-        L1_LAMBDA=None,
-        L2_REG=0.0,
-        FINETUNE=False,
-        FINE_TUNING_LR=1e-5,
-        FINE_TUNING_EPOCHS=100000,
-        PENALTY=False,
-        LATENT_VIS_EVERY=1000,
-        USE_MDN = True,
-        
-        # NOTES---------------------------------
-        notes = f"""Proto8 - trying to adapt Pette et al 2019, addign latent visualisation and analysing latent space. Might be slow, maybe take this out when live.
-        
-        Added MDN to increase variance of output as Bishop et al 1994. and Alemi et al 2017.
-        
-        MEED data only
-
-        All data, added 10% noise to emotions so model is less stuck. With LeakyRelu
-        Loss = mse_loss(keypoints) + mse_loss(emotions) because before output emotions ( which feature was added to keypoint features) were not being matched to input emotions
-        No penalty.
-
-        Added dropout to keypoints, also changed input to emotion linear to x and not just emotion (emotion + keypoints)
-        Taking extra dropout for emotions and keypoints out, because want model to rely on both equally so what's the point
-
-        dropout keypoints and dropout emotion is currently equal but might change this.
-
-        Emotions and keypoints are multimodal and added separately, but features are added in block processing using +.
-
-
-        Got rid of both L1 and L2, increasing dropout because model acting weird, this is now delta + coord. 
-        Delta is between next frame and current frame. So current frame is previous coord+previous delta. Last frame's delta is 0. 
-        """
-    )
-    latent_space, train_seed = main(args)
