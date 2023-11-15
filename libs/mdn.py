@@ -13,6 +13,7 @@ import torch.nn as nn
 from torch.distributions import Categorical
 import math
 import torch.nn.functional as F
+from torch.distributions import Normal
 
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
@@ -118,7 +119,7 @@ def mdn_loss(pi, sigma, mu, target):
     return nll
 
 
-def sample(pi, sigma, mu):
+def random_sample(pi, sigma, mu):
     # pi: Mixing coefficients with shape [B, T, G]
     # sigma: Standard deviations of the Gaussians [B, T, G, O]
     # mu: Means of the Gaussians [B, T, G, O]
@@ -141,3 +142,27 @@ def sample(pi, sigma, mu):
     
     return samples
 
+
+def sample(pi, sigma, mu):
+    # CHANGE: Instead of random sampling, use the mean of the most probable component
+    alpha_idx = torch.argmax(pi, dim=2)  # Find the index of the most probable Gaussian component
+    selected_mu = mu.gather(2, alpha_idx.unsqueeze(-1).unsqueeze(-1).expand(-1, -1,-1, mu.size(-1)))
+    selected_sigma = sigma.gather(2, alpha_idx.unsqueeze(-1).unsqueeze(-1).expand(-1, -1, -1, sigma.size(-1)))
+    selected_sigma = selected_sigma/ 1000  
+    # Divide by 100 to reduce the variance of the selected Gaussian I think, Pette et al 2019 did this not sure why
+    # but it seems to help model be less jaggy? - sigma is variance, so smaller sigma is closer to mean - less jaggy but more boring
+    
+    normal_dist = Normal(selected_mu, selected_sigma)
+    next_values = normal_dist.sample()[:, -1, :]  # Sample from the selected Gaussian
+    
+    # random sample - previous implementation
+    # next_values = mdn.sample(pi, sigma, mu)
+    
+    return next_values
+
+def max_sample(pi, sigma, mu):
+    #  CHANGE: Instead of random sampling, use the mean of the most probable component
+    alpha_idx = torch.argmax(pi, dim=2)  # Find the index of the most probable Gaussian component
+    selected_mu = mu.gather(2, alpha_idx.unsqueeze(-1).unsqueeze(-1).expand(-1, -1,-1, mu.size(-1)))
+    next_values = selected_mu[:, -1, :]  # Use the mean of the selected component
+    return next_values

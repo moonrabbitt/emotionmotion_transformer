@@ -328,9 +328,8 @@ class MotionModel(nn.Module):
                 pi, sigma, mu, logits, emotion_logits, _, _ = self(inputs=cond_sequence, emotions=generated_emotions)
 
                 # CHANGE: Instead of random sampling, use the mean of the most probable component
-                alpha_idx = torch.argmax(pi, dim=2)  # Find the index of the most probable Gaussian component
-                selected_mu = mu.gather(2, alpha_idx.unsqueeze(-1).unsqueeze(-1).expand(-1, -1,-1, mu.size(-1)))
-                next_values = selected_mu[:, -1, :]  # Use the mean of the selected component
+                # next_values = mdn.max_sample(pi, sigma, mu)
+                next_values = mdn.sample(pi, sigma, mu)
                 
                 # random sample - previous implementation
                 # next_values = mdn.sample(pi, sigma, mu)
@@ -1035,7 +1034,7 @@ def main(args = None):
         
         emotion_vectors = (emotion_in[i],generated_emotion[i])
         frame = int(random.randrange(len(batch))) #only feed 1 frame in for visualisation
-        visualise_skeleton(batch, max_x, max_y,emotion_vectors, max_frames=FRAMES_GENERATE,save = True,save_path=None,prefix=f'adam_{EPOCHS}_coord',train_seed=train_seed,delta=False)
+        visualise_skeleton(batch, max_x, max_y,emotion_vectors, max_frames=FRAMES_GENERATE,save = True,save_path=None,prefix=f'{EPOCHS}_mdnsample_sigma1000',train_seed=train_seed,delta=False)
         # visualise_skeleton(batch, max_x, max_y,emotion_vectors, max_frames=FRAMES_GENERATE,save = True,save_path=None,prefix=f'adam_{EPOCHS}_delta',train_seed=train_seed,delta=True)
 
 
