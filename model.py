@@ -109,12 +109,12 @@ def positional_encoding(seq_len, d_model):
 class Head(nn.Module):
     """one head of self attention"""
     
-    def __init__(self,head_size,n_emb,dropout=0.2):
+    def __init__(self,head_size,n_emb,dropout=0.2,blocksize=16):
         super().__init__()
         self.key = nn.Linear(n_emb, head_size, bias=False, device=device)
         self.query = nn.Linear(n_emb, head_size, bias=False, device=device)
         self.value = nn.Linear(n_emb, head_size, bias=False, device=device)
-        self.register_buffer('tril', torch.tril(torch.ones(BLOCK_SIZE, BLOCK_SIZE)))
+        self.register_buffer('tril', torch.tril(torch.ones(blocksize, blocksize)))
         self.n_emb = n_emb
         self.dropout = nn.Dropout(dropout)
     
@@ -227,7 +227,7 @@ class MotionModel(nn.Module):
        
     
         
-    def forward(self, inputs,  targets=None , emotions =None, l1_lambda = 0.001, mask=None,):
+    def forward(self, inputs,  targets=None , emotions =None, l1_lambda = 0.001, mask=None,USE_MDN=True, threshold=0.1, PENALTY=False):
         B,T,C = inputs.shape # batch size, time, context
         
         # fc1 transforms input into hidden dimension
@@ -317,12 +317,12 @@ class MotionModel(nn.Module):
         else:
             return logits,emotion_logits,loss,latent_vectors
     
-    def generate(self, inputs, emotions, max_new_tokens):
+    def generate(self, inputs, emotions, max_new_tokens, block_size=16, USE_MDN=True):
         generated_sequence = inputs
         generated_emotions = emotions
 
         for _ in range(max_new_tokens):
-            cond_sequence = generated_sequence[:, -BLOCK_SIZE:]  # Use the block_size parameter
+            cond_sequence = generated_sequence[:, -block_size:]  # Use the block_size parameter
 
             if USE_MDN:
                 pi, sigma, mu, logits, emotion_logits, _, _ = self(inputs=cond_sequence, emotions=generated_emotions)
@@ -434,8 +434,6 @@ def plot_losses(train_losses, val_losses, EPOCHS, spacing,train_seed, max_ticks=
     plt.close()
     return f"Plot saved to {plot_path}"
 
-
-
 def save_checkpoint(model, optimizer, scheduler, epoch, loss, checkpoint_path):
     """Save the model checkpoint."""
     # Use the run seed in the filename
@@ -470,8 +468,6 @@ def load_checkpoint(model, optimizer,checkpoint_path, scheduler = None):
     train_seed = state['train_seed']
     print(f"Checkpoint loaded from {checkpoint_path}")
     return model, optimizer, scheduler, epoch, loss,train_seed
-
-
 
 def visualise_skeleton(all_frames, max_x, max_y,emotion_vectors=None, max_frames=500, save=False, save_path=None, prefix=None, train_seed=None , delta=False, destroy = True):
     """Input all frames dim 50xn n being the number of frames 50= 25 keypoints x and y coordinates"""
@@ -592,6 +588,7 @@ def visualise_skeleton(all_frames, max_x, max_y,emotion_vectors=None, max_frames
         emotion_in, emotion_out = emotion_vectors
 
         # Calculate percentages for emotion_in
+       
         emotion_in_percentages = [
             f"{int(e * 100)}% {emotion_labels[i]}" 
             for i, e in enumerate(emotion_in.tolist()) if round(e * 100) > 0
@@ -764,6 +761,7 @@ def parse_args(args=None):
     parser.add_argument('--USE_MDN', action='store_true', help='Flag to indicate if MDN layer is used.', dest='USE_MDN')
     parser.add_argument('--notes', type=str, default=None, help='Notes to save with the model.', dest='notes')
     parser.add_argument('--DATASET', type=str, default="MEED", help='Dataset to use.', dest='DATASET')
+    parser.add_argument('--PATIENCE', type=int, default=10000, help='Patience for early stopping.', dest='PATIENCE')
     
     args = parser.parse_args()
     
@@ -776,7 +774,7 @@ def parse_args(args=None):
 
 # Define a function to set global variables
 def set_globals(args):
-    global BATCH_SIZE,DATASET, BLOCK_SIZE, DROPOUT, LEARNING_RATE, EPOCHS, FRAMES_GENERATE, TRAIN, EVAL_EVERY, CHECKPOINT_PATH, L1_LAMBDA, L2_REG, FINETUNE, FINE_TUNING_LR, FINE_TUNING_EPOCHS, PENALTY, LATENT_VIS_EVERY, notes,USE_MDN
+    global PATIENCE, BATCH_SIZE,DATASET, BLOCK_SIZE, DROPOUT, LEARNING_RATE, EPOCHS, FRAMES_GENERATE, TRAIN, EVAL_EVERY, CHECKPOINT_PATH, L1_LAMBDA, L2_REG, FINETUNE, FINE_TUNING_LR, FINE_TUNING_EPOCHS, PENALTY, LATENT_VIS_EVERY, notes,USE_MDN
     BATCH_SIZE = args.BATCH_SIZE
     BLOCK_SIZE = args.BLOCK_SIZE
     DROPOUT = args.DROPOUT
@@ -796,6 +794,7 @@ def set_globals(args):
     USE_MDN = args.USE_MDN
     DATASET = args.DATASET
     notes = args.notes
+    PATIENCE = args.PATIENCE
     
     # ---------------------------------
     notes = f"""Proto8 - trying to adapt Pette et al 2019, addign latent visualisation and analysing latent space. Might be slow, maybe take this out when live.
@@ -841,6 +840,7 @@ def set_globals(args):
     Latent visualization every set to: {LATENT_VIS_EVERY}
     Use MDN flag set to: {USE_MDN}
     Dataset set to: {DATASET}
+    Patience: {PATIENCE}
     """)
     
 def is_notebook():
@@ -870,7 +870,8 @@ def main(args = None):
     global train_data,train_emotions, val_data, val_emotions, frame_dim, max_x, min_x, max_y, min_y, max_dx, min_dx, max_dy, min_dy, threshold
     train_data, train_emotions, val_data, val_emotions, frame_dim, max_x, min_x, max_y, min_y, max_dx, min_dx, max_dy, min_dy, threshold = processed_data
     
-    
+    best_val_loss = float('inf')  # Initialize with infinity, so first instance is saved
+    epochs_since_improvement = 0  # Counter for epochs since last improvement
     
     # create model
     global m
@@ -950,6 +951,14 @@ def main(args = None):
                         best_val_loss = losses['val']
                         save_checkpoint(model=m, optimizer=optimizer, scheduler=scheduler,epoch=epoch, loss=loss, checkpoint_path=CHECKPOINT_PATH)
                         print(f'Model {train_seed} saved!')
+                        epochs_since_improvement = 0  
+                    else:
+                        # Multiple of EVAL_EVERY
+                        epochs_since_improvement += 1
+
+                    if (epochs_since_improvement >= PATIENCE) and (PATIENCE != 0):
+                        print(f"No improvement in validation loss for {PATIENCE} consecutive epochs. Stopping training.")
+                        break
 
                 # If you want to collect and visualize latent vectors periodically during training:
                 if epoch % LATENT_VIS_EVERY == 0:
@@ -1034,7 +1043,7 @@ def main(args = None):
         
         emotion_vectors = (emotion_in[i],generated_emotion[i])
         frame = int(random.randrange(len(batch))) #only feed 1 frame in for visualisation
-        visualise_skeleton(batch, max_x, max_y,emotion_vectors, max_frames=FRAMES_GENERATE,save = True,save_path=None,prefix=f'{EPOCHS}_mdnsample_sigma1000',train_seed=train_seed,delta=False)
+        visualise_skeleton(batch, max_x, max_y,emotion_vectors, max_frames=FRAMES_GENERATE,save = True,save_path=None,prefix=f'{EPOCHS}_mdnsample_sigma100',train_seed=train_seed,delta=False)
         # visualise_skeleton(batch, max_x, max_y,emotion_vectors, max_frames=FRAMES_GENERATE,save = True,save_path=None,prefix=f'adam_{EPOCHS}_delta',train_seed=train_seed,delta=True)
 
 
@@ -1055,9 +1064,9 @@ if __name__ == "__main__":
         BLOCK_SIZE=16,
         DROPOUT=0.2,
         LEARNING_RATE=0.0001,
-        EPOCHS=20000,
+        EPOCHS=300000,
         FRAMES_GENERATE=300,
-        TRAIN=False,
+        TRAIN=True,
         EVAL_EVERY=1000,
         CHECKPOINT_PATH="checkpoints/proto8_checkpoint.pth",
         L1_LAMBDA=None,
@@ -1068,6 +1077,7 @@ if __name__ == "__main__":
         PENALTY=False,
         LATENT_VIS_EVERY=1000,
         USE_MDN = True,
+        PATIENCE= 5, #multiple of EVAL_EVERY * 10 
         DATASET = "all",
         
         # NOTES---------------------------------
@@ -1079,8 +1089,9 @@ if __name__ == "__main__":
         see if that will help with noise
         
         
-        
         convert from random sampling MDN to find the index of the most probable Gaussian component hopefully will lead to smoother outputs
+        
+        adjusted sampling to /100 of sigma, hopefully will lead to smoother outputs
         
         all data
 
