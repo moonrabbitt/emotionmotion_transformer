@@ -12,6 +12,8 @@ import torch
 import torch.nn as nn
 from torch.distributions import Categorical
 import math
+import torch.nn.functional as F
+
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
 ONEOVERSQRT2PI = 1.0 / math.sqrt(2 * math.pi)
@@ -41,33 +43,30 @@ class MDN(nn.Module):
     """
 
     def __init__(self, in_features, out_features, num_gaussians):
-        super(MDN, self).__init__()
-        self.in_features = in_features
-        self.out_features = out_features
-        self.num_gaussians = num_gaussians
-        self.pi = nn.Sequential(
-            nn.Linear(in_features, num_gaussians),  # Softmax will be applied later
-            nn.Softmax(dim=-1)  # Assuming the softmax is applied across the Gaussian dimension
-        )
-        self.sigma = nn.Linear(in_features, out_features * num_gaussians, device=device)
-        self.mu = nn.Linear(in_features, out_features * num_gaussians,device=device)
+            super(MDN, self).__init__()
+            self.in_features = in_features
+            self.out_features = out_features
+            self.num_gaussians = num_gaussians
+
+            # Layers
+            self.pi = nn.Linear(in_features, num_gaussians)
+            self.sigma = nn.Linear(in_features, out_features * num_gaussians)
+            self.mu = nn.Linear(in_features, out_features * num_gaussians)
 
     def forward(self, minibatch):
-        B, T, D = minibatch.shape
-        minibatch_flat = minibatch.view(-1, D)  # Flatten [B, T, D] to [B*T, D]
+        # minibatch shape: [B, T, D]
+        pi = self.pi(minibatch)  # Apply linear layer along the last dimension
+        sigma = torch.nn.functional.softplus(self.sigma(minibatch))
+        sigma = sigma + 1e-6  # Add a small epsilon
+        mu = self.mu(minibatch)
 
-        pi_flat = self.pi(minibatch_flat)
-        sigma_flat = self.sigma(minibatch_flat)
-        sigma_flat = torch.nn.functional.softplus(self.sigma(minibatch_flat))
-        sigma_flat = sigma_flat + 1e-6  # Add a small epsilon to ensure positivity
-        mu_flat = self.mu(minibatch_flat)
+        # Reshape sigma and mu to separate out the Gaussian components
+        B, T, _ = sigma.shape
+        sigma = sigma.view(B, T, self.num_gaussians, self.out_features)
+        mu = mu.view(B, T, self.num_gaussians, self.out_features)
 
-        pi = pi_flat.view(B, T, -1)
-        sigma = sigma_flat.view(B, T, self.num_gaussians, self.out_features)
-        mu = mu_flat.view(B, T, self.num_gaussians, self.out_features)
-
-        # Apply softmax over the correct dimension for pi
-        pi = nn.functional.softmax(pi, dim=-1)  # Assuming the output of self.pi is [B, T, G]
+        # Apply softmax to pi across the Gaussian dimension
+        pi = F.softmax(pi, dim=-1)
 
         return pi, sigma, mu
 
@@ -90,8 +89,8 @@ def gaussian_probability(pi, sigma, mu, target):
 
 def mdn_loss(pi, sigma, mu, target):
     """
-    Computes the Mixture Density Network loss.
-    
+    Computes the Mixture Density Network loss, adapted to be more similar to Code A.
+
     :param pi: Mixture component weights [B, T, G]
     :param sigma: Standard deviations of mixture components [B, T, G, O]
     :param mu: Means of mixture components [B, T, G, O]
@@ -104,25 +103,26 @@ def mdn_loss(pi, sigma, mu, target):
     # Calculate the probability density function of target
     # Using Normal distribution with provided mu and sigma
     normal_dist = torch.distributions.Normal(mu, sigma)
-    prob_density = torch.exp(normal_dist.log_prob(target))
+    prob_density = normal_dist.log_prob(target)
     
-    pi = pi.unsqueeze(-1)
-    # Multiply by the mixture probabilities pi
-    prob_density = prob_density * pi
-    
-    # Sum over the mixture dimension G and take log
-    prob_density = prob_density.sum(2)
-    nll = -torch.log(prob_density + 1e-6)  # Numerical stability
-    
-    # Take mean over batch and time dimensions B and T
-    loss = nll.mean()
-    
-    return loss
+    # Log-sum-exp trick for numerical stability and to align with Code A logic
+    # This step is crucial to avoid underflow in computing log probabilities
+    max_prob_density = prob_density.max(dim=2, keepdim=True)[0]
+    prob_density = prob_density - max_prob_density
+    prob_density = torch.exp(prob_density) * pi.unsqueeze(-1)
+    prob_density = torch.log(prob_density.sum(2) + 1e-6) + max_prob_density.squeeze(2)
+
+    # Negative log-likelihood
+    nll = -prob_density.mean()
+
+    return nll
+
 
 def sample(pi, sigma, mu):
     # pi: Mixing coefficients with shape [B, T, G]
     # sigma: Standard deviations of the Gaussians [B, T, G, O]
     # mu: Means of the Gaussians [B, T, G, O]
+    # :return: Sampled values from the MDN
     
     categorical = Categorical(pi)
     mixture_indices = categorical.sample().unsqueeze(-1)  # Add an extra dimension for gather # [B, T, 1]

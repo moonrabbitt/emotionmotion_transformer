@@ -21,6 +21,7 @@ from data import *
 import argparse
 import sys
 import libs.mdn as mdn
+from torchsummary import summary
 
 
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
@@ -259,7 +260,7 @@ class MotionModel(nn.Module):
         logits = self.fc2(x)
         
         # Output emotion logits - emotions which was used to condition the model 
-        emotion_logits = self.emotion_head(emotion_features.mean(dim=1))  # B, emotion_dim
+        emotion_logits = self.emotion_head(x.mean(dim=1))  # B, emotion_dim
         
         if USE_MDN:
         # Apply MDN after dense layer  - look at https://github.com/deep-dance/core/blob/27e9c555d1c85599eba835d59a79cabb99b517c0/creator/src/model.py#L59
@@ -299,9 +300,11 @@ class MotionModel(nn.Module):
                 
                 else:
                     if USE_MDN:
-                        loss =  mdn.mdn_loss(pi, sigma, mu, targets)+ (F.mse_loss(emotion_logits, emotions)*0.4)  # fine
+                        # loss =  mdn.mdn_loss(pi, sigma, mu, targets)+ F.mse_loss(emotion_logits, emotions)
+                        loss = F.mse_loss(logits, targets) + (F.mse_loss(emotion_logits, emotions)) + mdn.mdn_loss(pi, sigma, mu, targets)
+                        
                     else:
-                        loss = F.mse_loss(logits, targets) + (F.mse_loss(emotion_logits, emotions)*0.4)
+                        loss = F.mse_loss(logits, targets) + (F.mse_loss(emotion_logits, emotions))
                 
  
             else:
@@ -310,47 +313,39 @@ class MotionModel(nn.Module):
 
            
         if USE_MDN:
-            return pi, sigma, mu,emotion_logits, loss,latent_vectors
+            return pi, sigma, mu, logits, emotion_logits, loss,latent_vectors
         else:
             return logits,emotion_logits,loss,latent_vectors
     
     def generate(self, inputs, emotions, max_new_tokens):
-        # inputs is (B,T,C) array of continuous values for keypoints
-        # emotions is (B, emotion_dim) array of continuous values for emotions
-        # get current prediction
-
         generated_sequence = inputs
         generated_emotions = emotions
 
         for _ in range(max_new_tokens):
-            # Assuming emotions don't change over time for generation
-            # If they do change, you'll need to update `generated_emotions` accordingly
+            cond_sequence = generated_sequence[:, -BLOCK_SIZE:]  # Use the block_size parameter
 
-            cond_sequence = generated_sequence[:, -BLOCK_SIZE:]  # get the last block_size tokens from the generated sequence
             if USE_MDN:
-                pi,sigma,mu, emotion_logits, _ ,_= self(inputs = cond_sequence, emotions = generated_emotions)
-                next_values = mdn.sample(pi, sigma, mu)
+                pi, sigma, mu, logits, emotion_logits, _, _ = self(inputs=cond_sequence, emotions=generated_emotions)
+
+                # CHANGE: Instead of random sampling, use the mean of the most probable component
+                alpha_idx = torch.argmax(pi, dim=2)  # Find the index of the most probable Gaussian component
+                selected_mu = mu.gather(2, alpha_idx.unsqueeze(-1).unsqueeze(-1).expand(-1, -1,-1, mu.size(-1)))
+                next_values = selected_mu[:, -1, :]  # Use the mean of the selected component
                 
+                # random sample - previous implementation
+                # next_values = mdn.sample(pi, sigma, mu)
+
                 generated_sequence = torch.cat([generated_sequence, next_values], dim=1)
-                
-                
-                 # emotion_logits shape is (B, emotion_dim)
 
             else:
-                # without MDN
-                logits, emotion_logits, _ ,_= self(inputs = cond_sequence, emotions = generated_emotions)
+                logits, emotion_logits, _, _ = self(inputs=cond_sequence, emotions=generated_emotions)
                 next_values = logits[:, -1, :]  # get the last token from the logits
-            
-                # Append the predicted values to the sequence
                 generated_sequence = torch.cat([generated_sequence, next_values.unsqueeze(1)], dim=1)
 
-            # Optionally collect emotion predictions if they're needed
-            # Emotion predictions are not timestep dependent, so we take the last one
-            
             generated_emotions = emotion_logits
-            
 
         return generated_sequence, generated_emotions
+
     
 # train----------------------------------------------------
 @torch.no_grad()
@@ -364,7 +359,7 @@ def estimate_loss():
         for k in tqdm(range(eval_iters), desc=f"Evaluating Loss", unit="batch"):
             xb, yb, eb, _ = get_batch(split, BLOCK_SIZE, BATCH_SIZE, train_data,train_emotions, val_data, val_emotions)
             if USE_MDN:
-                _,_,_,_, loss,_ = m(xb, yb, eb)
+                _,_,_,_,_, loss,_ = m(xb, yb, eb)
             else:
                 _,_, loss,_ = m(xb, yb, eb)
             losses[k] = loss.item()
@@ -769,6 +764,7 @@ def parse_args(args=None):
     parser.add_argument('--LATENT_VIS_EVERY', type=int, default=1000, help='Interval of epochs to visualize latent vectors.', dest='LATENT_VIS_EVERY')
     parser.add_argument('--USE_MDN', action='store_true', help='Flag to indicate if MDN layer is used.', dest='USE_MDN')
     parser.add_argument('--notes', type=str, default=None, help='Notes to save with the model.', dest='notes')
+    parser.add_argument('--DATASET', type=str, default="MEED", help='Dataset to use.', dest='DATASET')
     
     args = parser.parse_args()
     
@@ -781,7 +777,7 @@ def parse_args(args=None):
 
 # Define a function to set global variables
 def set_globals(args):
-    global BATCH_SIZE, BLOCK_SIZE, DROPOUT, LEARNING_RATE, EPOCHS, FRAMES_GENERATE, TRAIN, EVAL_EVERY, CHECKPOINT_PATH, L1_LAMBDA, L2_REG, FINETUNE, FINE_TUNING_LR, FINE_TUNING_EPOCHS, PENALTY, LATENT_VIS_EVERY, notes,USE_MDN
+    global BATCH_SIZE,DATASET, BLOCK_SIZE, DROPOUT, LEARNING_RATE, EPOCHS, FRAMES_GENERATE, TRAIN, EVAL_EVERY, CHECKPOINT_PATH, L1_LAMBDA, L2_REG, FINETUNE, FINE_TUNING_LR, FINE_TUNING_EPOCHS, PENALTY, LATENT_VIS_EVERY, notes,USE_MDN
     BATCH_SIZE = args.BATCH_SIZE
     BLOCK_SIZE = args.BLOCK_SIZE
     DROPOUT = args.DROPOUT
@@ -799,6 +795,7 @@ def set_globals(args):
     PENALTY = args.PENALTY
     LATENT_VIS_EVERY = args.LATENT_VIS_EVERY
     USE_MDN = args.USE_MDN
+    DATASET = args.DATASET
     notes = args.notes
     
     # ---------------------------------
@@ -844,6 +841,7 @@ def set_globals(args):
     Penalty flag set to: {PENALTY}
     Latent visualization every set to: {LATENT_VIS_EVERY}
     Use MDN flag set to: {USE_MDN}
+    Dataset set to: {DATASET}
     """)
     
 def is_notebook():
@@ -869,7 +867,7 @@ def main(args = None):
 
     # Set global variables
     
-    processed_data= prep_data(dataset="MEED")
+    processed_data= prep_data(dataset=DATASET)
     global train_data,train_emotions, val_data, val_emotions, frame_dim, max_x, min_x, max_y, min_y, max_dx, min_dx, max_dy, min_dy, threshold
     train_data, train_emotions, val_data, val_emotions, frame_dim, max_x, min_x, max_y, min_y, max_dx, min_dx, max_dy, min_dy, threshold = processed_data
     
@@ -879,6 +877,7 @@ def main(args = None):
     global m
     m = MotionModel(input_dim=frame_dim, output_dim=frame_dim,emotion_dim=7, blocksize=BLOCK_SIZE, hidden_dim=512, n_layers=8, dropout=DROPOUT)
     m = m.to(device)
+    # summary(m, input_size=(BATCH_SIZE, BLOCK_SIZE, frame_dim))
     
     global train_seed
     
@@ -920,7 +919,7 @@ def main(args = None):
           
             # evaluate loss
             if USE_MDN:
-                pi, sigma, mu, emotion_logits, loss, latent_vectors = m(xb, yb, eb)
+                pi, sigma, mu, logits, emotion_logits, loss, latent_vectors = m(xb, yb, eb)
             else:
                 logits,emotion_logits,loss,latent_vectors = m(xb,yb,eb)
             
@@ -961,7 +960,7 @@ def main(args = None):
                         xb, yb, eb, _ = get_batch("val", BLOCK_SIZE, BATCH_SIZE, train_data, train_emotions, val_data, val_emotions)
                         
                         if USE_MDN:
-                            _,_, _, _, _, latent_vectors = m(xb, yb, eb)
+                            _,_,_, _, _, _, latent_vectors = m(xb, yb, eb)
                         
                         else: 
                             _,_,_,latent_vectors = m(xb,yb,eb)
@@ -993,7 +992,7 @@ def main(args = None):
         print(f"Model {train_seed} loaded from {CHECKPOINT_PATH} (epoch {epoch}, loss {loss:.6f})")
     
     
-    
+
     # Generate a sequence
     print(f'Generating sequence of {FRAMES_GENERATE} frames...')
     # xb and yb should always have the same emotion - because same video
@@ -1006,6 +1005,28 @@ def main(args = None):
     # generated_keypoints,generated_emotion = m.generate(xb_random_frame, emotion_in, FRAMES_GENERATE)
     generated_keypoints,generated_emotion = m.generate(xb, emotion_in, FRAMES_GENERATE)
     # unnorm_out = unnormalise_list_2D(generated, max_x, min_x, max_y, min_y,max_dx, min_dx, max_dy, min_dy)
+    
+    
+    # # ====
+    # print(generated_keypoints)
+    
+    # output_file_path = 'output_file.txt'  # Replace with your desired file path
+
+    # generated_keypoints, generated_emotion = m.generate(xb, emotion_in, FRAMES_GENERATE)
+    # # print(generated_keypoints)
+
+    # # Check if the file exists. If not, create it.
+    # if not os.path.exists(output_file_path):
+    #     os.makedirs(os.path.dirname(output_file_path), exist_ok=True)
+
+    # # Write the output to the file
+    # with open(output_file_path, 'w') as file:
+    #     file.write(str(generated_keypoints))
+    #     file.write('\n')
+    #     file.write(str(generated_emotion))
+        
+    # # ====
+        
     unnorm_out = unnormalise_list_2D(generated_keypoints, max_x, min_x, max_y, min_y,max_x, min_x, max_y, min_y)
     # unnorm_out = unnormalise_list_2D(xb, max_x, min_x, max_y, min_y,max_x, min_x, max_y, min_y)
     
@@ -1035,8 +1056,8 @@ if __name__ == "__main__":
         BLOCK_SIZE=16,
         DROPOUT=0.2,
         LEARNING_RATE=0.0001,
-        EPOCHS=50000,
-        FRAMES_GENERATE=30,
+        EPOCHS=20000,
+        FRAMES_GENERATE=300,
         TRAIN=False,
         EVAL_EVERY=1000,
         CHECKPOINT_PATH="checkpoints/proto8_checkpoint.pth",
@@ -1048,13 +1069,21 @@ if __name__ == "__main__":
         PENALTY=False,
         LATENT_VIS_EVERY=1000,
         USE_MDN = True,
+        DATASET = "all",
         
         # NOTES---------------------------------
         notes = f"""Proto8 - trying to adapt Pette et al 2019, addign latent visualisation and analysing latent space. Might be slow, maybe take this out when live.
         
         Added MDN to increase variance of output as Bishop et al 1994. and Alemi et al 2017.
         
-        MEED data only
+        Updated loss to loss = F.mse_loss(logits, targets) + (F.mse_loss(emotion_logits, emotions)) + mdn.mdn_loss(pi, sigma, mu, targets)
+        see if that will help with noise
+        
+        
+        
+        convert from random sampling MDN to find the index of the most probable Gaussian component hopefully will lead to smoother outputs
+        
+        all data
 
         All data, added 10% noise to emotions so model is less stuck. With LeakyRelu
         Loss = mse_loss(keypoints) + mse_loss(emotions) because before output emotions ( which feature was added to keypoint features) were not being matched to input emotions
