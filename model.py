@@ -1,4 +1,4 @@
-# Prototype 6 - adding penalties to increase movement
+# Prototype 8 
 # set up environment
 import glob
 import os 
@@ -22,6 +22,7 @@ import argparse
 import sys
 import libs.mdn as mdn
 from torchsummary import summary
+from torch.utils.tensorboard import SummaryWriter
 
 
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
@@ -260,7 +261,7 @@ class MotionModel(nn.Module):
         logits = self.fc2(x)
         
         # Output emotion logits - emotions which was used to condition the model 
-        emotion_logits = self.emotion_head(x.mean(dim=1))  # B, emotion_dim
+        emotion_logits = self.emotion_head(torch.mean(x, dim=1) )  # B, emotion_dim
         
         if USE_MDN:
         # Apply MDN after dense layer  - look at https://github.com/deep-dance/core/blob/27e9c555d1c85599eba835d59a79cabb99b517c0/creator/src/model.py#L59
@@ -301,10 +302,12 @@ class MotionModel(nn.Module):
                 else:
                     if USE_MDN:
                         # loss =  mdn.mdn_loss(pi, sigma, mu, targets)+ F.mse_loss(emotion_logits, emotions)
-                        loss = F.mse_loss(logits, targets) + (F.mse_loss(emotion_logits, emotions)) + mdn.mdn_loss(pi, sigma, mu, targets)
+                        # loss = F.mse_loss(logits, targets) + (F.mse_loss(emotion_logits, emotions)) + mdn.mdn_loss(pi, sigma, mu, targets)
+                        loss = (F.mse_loss(logits, targets) , (F.mse_loss(emotion_logits, emotions)) , mdn.mdn_loss(pi, sigma, mu, targets))
                         
                     else:
-                        loss = F.mse_loss(logits, targets) + (F.mse_loss(emotion_logits, emotions))
+                        # loss = F.mse_loss(logits, targets) + (F.mse_loss(emotion_logits, emotions))
+                        loss = (F.mse_loss(logits, targets) , (F.mse_loss(emotion_logits, emotions)))
                 
  
             else:
@@ -359,9 +362,13 @@ def estimate_loss():
             xb, yb, eb, _ = get_batch(split, BLOCK_SIZE, BATCH_SIZE, train_data,train_emotions, val_data, val_emotions)
             if USE_MDN:
                 _,_,_,_,_, loss,_ = m(xb, yb, eb)
+                mse_logits_loss, mse_emotion_loss, mdn_loss = loss
+                total_loss = mse_logits_loss + mse_emotion_loss + mdn_loss
             else:
                 _,_, loss,_ = m(xb, yb, eb)
-            losses[k] = loss.item()
+                mse_logits_loss, mse_emotion_loss = loss
+                total_loss = mse_logits_loss + mse_emotion_loss
+            losses[k] = total_loss.item()
         out[split] = losses.mean()
     m.train()
     return out
@@ -678,7 +685,6 @@ def get_random_frame(data, emotion):
     
     return selected_frame
 
-
     
 def sanity_check(keypoints):
     """
@@ -736,7 +742,6 @@ def write_notes(notes = None):
         with open(out_path, 'w') as f:
             f.write(notes)
         print(f"Notes saved to {out_path}")
-
 
 
 def parse_args(args=None):
@@ -864,7 +869,8 @@ def main(args = None):
     # Set the global variables based on args
     set_globals(args)
 
-    # Set global variables
+    # Launch tensor board
+    writer = SummaryWriter('runs/motion_model_experiment')
     
     processed_data= prep_data(dataset=DATASET)
     global train_data,train_emotions, val_data, val_emotions, frame_dim, max_x, min_x, max_y, min_y, max_dx, min_dx, max_dy, min_dy, threshold
@@ -878,6 +884,7 @@ def main(args = None):
     m = MotionModel(input_dim=frame_dim, output_dim=frame_dim,emotion_dim=7, blocksize=BLOCK_SIZE, hidden_dim=512, n_layers=8, dropout=DROPOUT)
     m = m.to(device)
     # summary(m, input_size=(BATCH_SIZE, BLOCK_SIZE, frame_dim))
+    
     
     global train_seed
     
@@ -920,11 +927,22 @@ def main(args = None):
             # evaluate loss
             if USE_MDN:
                 pi, sigma, mu, logits, emotion_logits, loss, latent_vectors = m(xb, yb, eb)
+                mse_logits_loss, mse_emotion_loss, mdn_loss = loss
+                total_loss = mse_logits_loss + mse_emotion_loss + mdn_loss
             else:
                 logits,emotion_logits,loss,latent_vectors = m(xb,yb,eb)
+                mse_logits_loss, mse_emotion_loss = loss
+                total_loss = mse_logits_loss + mse_emotion_loss
+                mdn_loss = 0
             
             optimizer.zero_grad(set_to_none=True)
-            loss.backward()
+            total_loss.backward()
+            
+            # Log the losses
+            writer.add_scalar('Loss/Total', mse_logits_loss.item(), epoch)
+            writer.add_scalar('Loss/Emotion', mse_emotion_loss.item(), epoch)
+            if USE_MDN:
+                writer.add_scalar('Loss/MDN', mdn_loss.item(), epoch)
             
             # Clip gradients
             # nn.utils.clip_grad_norm_(m.parameters(), max_norm=1)
@@ -973,7 +991,8 @@ def main(args = None):
                         else: 
                             _,_,_,latent_vectors = m(xb,yb,eb)
                             
-                        latent_space.append(latent_vectors.cpu().numpy())
+                        latent_array = latent_vectors.cpu().detach().clone().numpy()
+                        latent_space.append(latent_array)
                         m.train()  # Switch back to training mode
             
             
@@ -1064,11 +1083,11 @@ if __name__ == "__main__":
         BLOCK_SIZE=16,
         DROPOUT=0.2,
         LEARNING_RATE=0.0001,
-        EPOCHS=300000,
+        EPOCHS=3000,
         FRAMES_GENERATE=300,
         TRAIN=True,
         EVAL_EVERY=1000,
-        CHECKPOINT_PATH="checkpoints/proto8_checkpoint.pth",
+        CHECKPOINT_PATH="checkpoints/proto8_checkpoint_temp.pth",
         L1_LAMBDA=None,
         L2_REG=0.0,
         FINETUNE=False,
