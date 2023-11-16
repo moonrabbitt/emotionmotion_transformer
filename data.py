@@ -557,8 +557,11 @@ def prep_data(dataset):
     validate_length(dkp_frames,50,message="dkp_frames")
     validate_length(kp_frames,50,message="kp_frames")
     
-    data = add_delta_to_frames(kp_frames, dkp_frames)
-    validate_length(data,100,message="data after delta")
+    # removed for proto9
+    # data = add_delta_to_frames(kp_frames, dkp_frames)
+    # validate_length(data,100,message="data after delta")
+    
+    data = kp_frames
     
     frame_dim = len(data[0][0]) # how many numbers are in each frame? - 50 kps xy + 50 deltas 
     print(f"frame_dim: {frame_dim}")

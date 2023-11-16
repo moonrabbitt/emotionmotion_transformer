@@ -1,4 +1,4 @@
-# Prototype 8 
+# Prototype 9 - adding emotions into MDN
 # set up environment
 import glob
 import os 
@@ -213,19 +213,19 @@ class MotionModel(nn.Module):
         self.hidden_dim = hidden_dim
         self.fc1 = nn.Linear(input_dim, hidden_dim, bias=False, device=device) 
         self.fc2 = nn.Linear(hidden_dim, output_dim, bias=False,device=device)
-        self.mdn = mdn.MDN(output_dim,output_dim, num_gaussians=5) # fine
+        self.mdn = mdn.MDN((output_dim+emotion_dim),output_dim, num_gaussians=5) 
         # emotions
         self.emotion_fc1 = nn.Linear(emotion_dim, hidden_dim, bias=False,device=device)
         self.emotion_dropout = nn.Dropout(dropout)
         self.emotion_fc2 = nn.Linear(hidden_dim, emotion_dim).to(device)  # Outputs a continuous vector for emotions
         
         self.positional_encoding = positional_encoding(seq_len=blocksize, d_model=hidden_dim).to(device)
-        layers = [Block(n_emb=hidden_dim, n_heads=4) for _ in range(n_layers)]
-        layers.append(nn.LayerNorm(hidden_dim, device=device))
+        layers = [Block(n_emb=hidden_dim*2, n_heads=4) for _ in range(n_layers)] # 2* because concatenate emotion and keypoints
+        layers.append(nn.LayerNorm(hidden_dim*2, device=device))
         # layers.append(nn.InstanceNorm1d(hidden_dim, device=device))
         self.blocks = nn.Sequential(*layers)
 
-        self.lm_head = nn.Linear(hidden_dim, hidden_dim, bias=False, device=device)
+        self.lm_head = nn.Linear(hidden_dim*2, hidden_dim, bias=False, device=device)
        
     
         
@@ -245,19 +245,15 @@ class MotionModel(nn.Module):
         
         # FIGURE OUT MULTIMODAL INPUT TORCH
         # Combine keypoint and emotion features
-        # x = torch.cat((keypoint_features, emotion_features), dim=-1)  # Concatenate along the feature dimension
-        x = keypoint_features + emotion_features
-        x = self.blocks(x) # B,T,hidden dimension
-        
-        # Deconcatenate keypoint and emotion features
-        # keypoint_features, emotion_features = x.split([self.hidden_dim, self.hidden_dim], dim=-1)
-        # keypoint_features, emotion_features = x
+        x = torch.cat((keypoint_features, emotion_features), dim=-1)  # Concatenate along the feature dimension - B,T,2*hidden dimension - compute emotion and keypoints tgt
+        # x = keypoint_features + emotion_features  # removed for proto9
+        x = self.blocks(x) # B,T,hidden dimension *2
 
         # Save the latent vectors
         latent_vectors = x.detach()
         
-        x= self.lm_head(x) # B,T,hidden dimension
-        
+        x= self.lm_head(x) # B,T,hidden dimension*2 --> B,T,hidden dimension
+    
         # fc2 transforms hidden dimension into output dimension
         logits = self.fc2(x)
         
@@ -267,7 +263,8 @@ class MotionModel(nn.Module):
         
         if USE_MDN:
         # Apply MDN after dense layer  - look at https://github.com/deep-dance/core/blob/27e9c555d1c85599eba835d59a79cabb99b517c0/creator/src/model.py#L59
-            pi, sigma, mu = self.mdn(logits) #fine
+            combined_logits = torch.cat((logits, emotion_logits.unsqueeze(1).expand(-1, T, -1)), dim=-1)  # B, T, output_dim + emotion_dim
+            pi, sigma, mu = self.mdn(combined_logits) #fine
         
         if targets is None:
             loss = None
@@ -278,35 +275,12 @@ class MotionModel(nn.Module):
             # You can adjust this value based on your needs
            
             if L1_LAMBDA is None:
-                
-                # if penalising model for small movements
-                if PENALTY:
+           
+                if USE_MDN:
+                    loss = (F.mse_loss(logits, targets) , (F.mse_loss(emotion_logits, emotions)) , mdn.mdn_loss(pi, sigma, mu, targets))
                     
-                    # Current MSE loss calculation
-                    mse_loss = F.mse_loss(logits, targets)
-
-                    # Extract the magnitude of the deltas from logits
-                    logits_deltas_magnitude = torch.abs(logits[:, :, 50:100])
-
-                    # Calculate the cumulative magnitude of the deltas over the entire sequence for each sample in the batch
-                    cumulative_deltas_magnitude = logits_deltas_magnitude.sum(dim=1)
-
-                    # Calculate the penalty for samples where the cumulative magnitude of deltas is below the threshold
-                    penalty_mask = (cumulative_deltas_magnitude < threshold).float()
-                    penalty = penalty_mask.mean()
-
-                    # Hyperparameter to balance the original MSE and the new penalty term
-                    alpha = 0.01  # This value can be adjusted based on your needs
-
-                    # Combine the MSE loss and the penalty term to get the modified loss
-                    loss = mse_loss + alpha * penalty
-                
                 else:
-                    if USE_MDN:
-                        loss = (F.mse_loss(logits, targets) , (F.mse_loss(emotion_logits, emotions)) , mdn.mdn_loss(pi, sigma, mu, targets))
-                        
-                    else:
-                        loss = (F.mse_loss(logits, targets) , (F.mse_loss(emotion_logits, emotions)))
+                    loss = (F.mse_loss(logits, targets) , (F.mse_loss(emotion_logits, emotions)))
                 
  
             else:
@@ -946,8 +920,8 @@ def main(args = None):
     # Define  MDN loss scheduling parameters
     START_WEIGHT = 0.1  # Initial weight of MDN loss
     END_WEIGHT = 1 # Final weight of MDN loss
-    RAMP_EPOCHS = 100000  # Number of epochs over which to increase weight
-    START_AFTER  = 100000 # Number of epochs to wait before starting to increase weight
+    RAMP_EPOCHS = 10000  # Number of epochs over which to increase weight
+    START_AFTER  = 10000 # Number of epochs to wait before starting to increase weight
     
     
     notes += f"""\nMDN weight schedule: \nStart weight: {START_WEIGHT} \nEnd weight: {END_WEIGHT} \nRamp epochs: {RAMP_EPOCHS} \nStart after: {START_AFTER}"""
@@ -1148,11 +1122,11 @@ if __name__ == "__main__":
         BLOCK_SIZE=16,
         DROPOUT=0.2,
         LEARNING_RATE=0.0001,
-        EPOCHS=300000,
+        EPOCHS=30000,
         FRAMES_GENERATE=300,
-        TRAIN=False,
+        TRAIN=True,
         EVAL_EVERY=1000,
-        CHECKPOINT_PATH="checkpoints/proto8_checkpoint_temp.pth",
+        CHECKPOINT_PATH="checkpoints/proto9_checkpoint.pth",
         L1_LAMBDA=None,
         L2_REG=0.0,
         FINETUNE=False,
