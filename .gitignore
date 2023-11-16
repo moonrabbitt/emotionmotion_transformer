@@ -8,6 +8,10 @@ __pycache__/
 notebook.ipynb
 models/
 checkpoints/
+runs/
+*.avi
+*.png
+*.obj
 # C extensions
 *.so
 

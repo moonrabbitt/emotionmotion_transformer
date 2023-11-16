@@ -23,6 +23,7 @@ import sys
 import libs.mdn as mdn
 from torchsummary import summary
 from torch.utils.tensorboard import SummaryWriter
+from datetime import datetime
 
 
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
@@ -214,9 +215,9 @@ class MotionModel(nn.Module):
         self.fc2 = nn.Linear(hidden_dim, output_dim, bias=False,device=device)
         self.mdn = mdn.MDN(output_dim,output_dim, num_gaussians=5) # fine
         # emotions
-        self.emotion_fc = nn.Linear(emotion_dim, hidden_dim, bias=False,device=device)
+        self.emotion_fc1 = nn.Linear(emotion_dim, hidden_dim, bias=False,device=device)
         self.emotion_dropout = nn.Dropout(dropout)
-        self.emotion_head = nn.Linear(hidden_dim, emotion_dim).to(device)  # Outputs a continuous vector for emotions
+        self.emotion_fc2 = nn.Linear(hidden_dim, emotion_dim).to(device)  # Outputs a continuous vector for emotions
         
         self.positional_encoding = positional_encoding(seq_len=blocksize, d_model=hidden_dim).to(device)
         layers = [Block(n_emb=hidden_dim, n_heads=4) for _ in range(n_layers)]
@@ -237,8 +238,8 @@ class MotionModel(nn.Module):
         keypoint_features += positional_encoding(seq_len=T, d_model=self.hidden_dim).to(device) # positional_encoding = T,hidden dimension , added = B,T,hidden dimension
         
         # Process emotion inputs
-        emotion_features = self.emotion_fc(emotions)  # B, emotion_dim to B, hidden_dim
-        emotion_features = self.emotion_dropout(emotion_features)
+        emotion_features = self.emotion_fc1(emotions)  # B, emotion_dim to B, hidden_dim
+        # emotion_features = self.emotion_dropout(emotion_features)
         emotion_features = emotion_features.unsqueeze(1).expand(-1, T, -1)  # B, T, hidden_dim
         
         
@@ -261,7 +262,8 @@ class MotionModel(nn.Module):
         logits = self.fc2(x)
         
         # Output emotion logits - emotions which was used to condition the model 
-        emotion_logits = self.emotion_head(torch.mean(x, dim=1) )  # B, emotion_dim
+        # choosing x because x should represent both keypoints and emotions for the relationship to be captured
+        emotion_logits = self.emotion_fc2(torch.mean(x, dim=1) )  # B, emotion_dim
         
         if USE_MDN:
         # Apply MDN after dense layer  - look at https://github.com/deep-dance/core/blob/27e9c555d1c85599eba835d59a79cabb99b517c0/creator/src/model.py#L59
@@ -301,12 +303,9 @@ class MotionModel(nn.Module):
                 
                 else:
                     if USE_MDN:
-                        # loss =  mdn.mdn_loss(pi, sigma, mu, targets)+ F.mse_loss(emotion_logits, emotions)
-                        # loss = F.mse_loss(logits, targets) + (F.mse_loss(emotion_logits, emotions)) + mdn.mdn_loss(pi, sigma, mu, targets)
                         loss = (F.mse_loss(logits, targets) , (F.mse_loss(emotion_logits, emotions)) , mdn.mdn_loss(pi, sigma, mu, targets))
                         
                     else:
-                        # loss = F.mse_loss(logits, targets) + (F.mse_loss(emotion_logits, emotions))
                         loss = (F.mse_loss(logits, targets) , (F.mse_loss(emotion_logits, emotions)))
                 
  
@@ -872,6 +871,12 @@ def main(args = None):
     # Launch tensor board
     writer = SummaryWriter('runs/motion_model_experiment')
     
+        # Current time for unique folder names
+    current_time = datetime.now().strftime('%b%d_%H-%M-%S')
+    log_dir = f'runs/motion_model_experiment_{current_time}'
+
+    writer = SummaryWriter(log_dir)
+    
     processed_data= prep_data(dataset=DATASET)
     global train_data,train_emotions, val_data, val_emotions, frame_dim, max_x, min_x, max_y, min_y, max_dx, min_dx, max_dy, min_dy, threshold
     train_data, train_emotions, val_data, val_emotions, frame_dim, max_x, min_x, max_y, min_y, max_dx, min_dx, max_dy, min_dy, threshold = processed_data
@@ -908,6 +913,26 @@ def main(args = None):
     
     #loss evaluated at every EVAL EVERY, so 2*EVAL_EVERY is scheduler's actual patience
     # train
+    
+    def schedule_mdn_weight(start_after, epoch, start_weight, end_weight, ramp_epochs):
+        # Check if the ramping process has not started yet
+        if epoch < start_after:
+            return start_weight
+        # Adjust epoch count to start ramping from 0 after start_after
+        adjusted_epoch = epoch - start_after
+        # Check if the ramping process is ongoing
+        if adjusted_epoch < ramp_epochs:
+            return start_weight + (end_weight - start_weight) * (adjusted_epoch / ramp_epochs)
+        # Ramping process is complete
+        return end_weight
+    
+    # Define  MDN loss scheduling parameters
+    START_WEIGHT = 0  # Initial weight of MDN loss
+    END_WEIGHT = 1 # Final weight of MDN loss
+    RAMP_EPOCHS = 7000  # Number of epochs over which to increase weight
+    START_AFTER  = 2000 # Number of epochs to wait before starting to increase weight
+
+
     if TRAIN or FINETUNE:
         # Generate a random seed
         
@@ -926,9 +951,11 @@ def main(args = None):
           
             # evaluate loss
             if USE_MDN:
+                mdn_weight = schedule_mdn_weight(START_AFTER,epoch, START_WEIGHT, END_WEIGHT, RAMP_EPOCHS)
                 pi, sigma, mu, logits, emotion_logits, loss, latent_vectors = m(xb, yb, eb)
                 mse_logits_loss, mse_emotion_loss, mdn_loss = loss
-                total_loss = mse_logits_loss + mse_emotion_loss + mdn_loss
+                # total_loss = mse_logits_loss + mse_emotion_loss + mdn_loss
+                total_loss = mse_logits_loss + mse_emotion_loss + (mdn_weight * mdn_loss)
             else:
                 logits,emotion_logits,loss,latent_vectors = m(xb,yb,eb)
                 mse_logits_loss, mse_emotion_loss = loss
@@ -939,10 +966,13 @@ def main(args = None):
             total_loss.backward()
             
             # Log the losses
-            writer.add_scalar('Loss/Total', mse_logits_loss.item(), epoch)
+            writer.add_scalar('Loss/Keypoints', mse_logits_loss.item(), epoch)
             writer.add_scalar('Loss/Emotion', mse_emotion_loss.item(), epoch)
             if USE_MDN:
                 writer.add_scalar('Loss/MDN', mdn_loss.item(), epoch)
+                writer.add_scalar('Loss/MDN_Weight', mdn_weight, epoch)
+            
+            writer.add_scalar('Loss/Total', total_loss.item(), epoch)
             
             # Clip gradients
             # nn.utils.clip_grad_norm_(m.parameters(), max_norm=1)
@@ -1083,7 +1113,7 @@ if __name__ == "__main__":
         BLOCK_SIZE=16,
         DROPOUT=0.2,
         LEARNING_RATE=0.0001,
-        EPOCHS=3000,
+        EPOCHS=10000,
         FRAMES_GENERATE=300,
         TRAIN=True,
         EVAL_EVERY=1000,
@@ -1100,9 +1130,18 @@ if __name__ == "__main__":
         DATASET = "all",
         
         # NOTES---------------------------------
-        notes = f"""Proto8 - trying to adapt Pette et al 2019, addign latent visualisation and analysing latent space. Might be slow, maybe take this out when live.
+        notes = f"""Proto8 - # Define  MDN loss scheduling parameters
+        START_WEIGHT = 0  # Initial weight of MDN loss
+        END_WEIGHT = 1 # Final weight of MDN loss
+        RAMP_EPOCHS = 7000  # Number of epochs over which to increase weight
+        START_AFTER  = 2000 # Number of epochs to wait before starting to increase weight
+            
+        trying to adapt Pette et al 2019, addign latent visualisation and analysing latent space. Might be slow, maybe take this out when live.
         
         Added MDN to increase variance of output as Bishop et al 1994. and Alemi et al 2017.
+        
+        Scheduling MDN weight to increase over time for loss so that mse loss has better chance of converging first because otherwise MDN loss is overpowering it.
+        Currently linear function but maybe change this to exponential. 
         
         Updated loss to loss = F.mse_loss(logits, targets) + (F.mse_loss(emotion_logits, emotions)) + mdn.mdn_loss(pi, sigma, mu, targets)
         see if that will help with noise
