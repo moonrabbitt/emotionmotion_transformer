@@ -499,7 +499,8 @@ def compute_threshold(dataset):
     return threshold
 
 def get_meed_files()-> list:
-    direction = ['left', 'right', 'front']
+    # direction = ['left', 'right', 'front']
+    direction = ['front']
     meed_files = []
     for d in direction:
         meed_files.extend(glob.glob(f"G:/UAL_Thesis/affective_computing_datasets/multiview-emotional-expressions-dataset/*/{d}_*/processed_data.json"))

@@ -93,15 +93,15 @@ def set_globals(args):
 
 
 args = argparse.Namespace(
-        BATCH_SIZE=1,
+        BATCH_SIZE=8,
         BLOCK_SIZE=16,
         DROPOUT=0.2,
         LEARNING_RATE=0.0001,
-        EPOCHS=100000,
-        FRAMES_GENERATE=150,
+        EPOCHS=30000,
+        FRAMES_GENERATE=300,
         TRAIN=False,
         EVAL_EVERY=1000,
-        CHECKPOINT_PATH="checkpoints/proto8_checkpoint.pth",
+        CHECKPOINT_PATH="checkpoints/proto9_checkpoint.pth",
         L1_LAMBDA=None,
         L2_REG=0.0,
         FINETUNE=False,
@@ -110,15 +110,30 @@ args = argparse.Namespace(
         PENALTY=False,
         LATENT_VIS_EVERY=1000,
         USE_MDN = True,
+        PATIENCE= 35, #multiple of EVAL_EVERY * 10 - no early stopping if patience =0
         DATASET = "all",
-        PATIENCE = 10,
         
         # NOTES---------------------------------
-        notes = f"""Proto8 - trying to adapt Pette et al 2019, addign latent visualisation and analysing latent space. Might be slow, maybe take this out when live.
+        notes = f"""Proto8 - # Define  MDN loss scheduling parameters - 
+         # Define  MDN loss scheduling parameters
+         linear rate increase
+            
+        trying to adapt Pette et al 2019, addign latent visualisation and analysing latent space. Might be slow, maybe take this out when live.
         
         Added MDN to increase variance of output as Bishop et al 1994. and Alemi et al 2017.
         
-        MEED data only
+        Scheduling MDN weight to increase over time for loss so that mse loss has better chance of converging first because otherwise MDN loss is overpowering it.
+        Currently linear function but maybe change this to exponential. 
+        
+        Updated loss to loss = F.mse_loss(logits, targets) + (F.mse_loss(emotion_logits, emotions)) + mdn.mdn_loss(pi, sigma, mu, targets)
+        see if that will help with noise
+        
+        
+        convert from random sampling MDN to find the index of the most probable Gaussian component hopefully will lead to smoother outputs
+        
+        adjusted sampling to /100 of sigma, hopefully will lead to smoother outputs
+        
+        all data
 
         All data, added 10% noise to emotions so model is less stuck. With LeakyRelu
         Loss = mse_loss(keypoints) + mse_loss(emotions) because before output emotions ( which feature was added to keypoint features) were not being matched to input emotions
@@ -136,7 +151,6 @@ args = argparse.Namespace(
         Delta is between next frame and current frame. So current frame is previous coord+previous delta. Last frame's delta is 0. 
         """
     )
-
 # If args are provided, use those; otherwise, parse from command line
 if args is None:
     args = parse_args()
@@ -162,8 +176,21 @@ print('Loading model...')
 
 
 m, optimizer, scheduler, epoch, loss, train_seed = load_checkpoint(m, optimizer, args.CHECKPOINT_PATH,scheduler)
-print(f"Model {train_seed} loaded from {args.CHECKPOINT_PATH} (epoch {epoch}, loss {loss:.6f})")
 
+try:
+
+    if USE_MDN:
+        print('MDN layer is used.')
+        keypoints_loss, emotion_loss, mdn_loss = loss
+        total_loss = keypoints_loss + emotion_loss + mdn_loss
+    else:
+        print('MDN layer is not used.')
+        keypoints_loss, emotion_loss = loss
+        total_loss = keypoints_loss + emotion_loss
+    print(f"Model {train_seed} loaded from {CHECKPOINT_PATH} (epoch {epoch}, keypoints loss: {keypoints_loss:.6f}, emotion loss: {emotion_loss:.6f} , total loss: {total_loss:.6f})")
+
+except TypeError:
+    print(f"Model {train_seed} loaded from {CHECKPOINT_PATH} (epoch {epoch}, total loss: {loss:.6f})")
 
 # Functions
 def normalise_generated(unnorm_out, max_x, min_x, max_y, min_y, max_dx, min_dx, max_dy, min_dy): 
@@ -181,16 +208,6 @@ def normalise_generated(unnorm_out, max_x, min_x, max_y, min_y, max_dx, min_dx, 
             norm_y = 2 * (unnormalized_y - min_y) / (max_y - min_y) - 1
             
             norm_frame.extend([norm_x, norm_y])
-        
-        # Normalize the second 50 values (x and y deltas)
-        for i in range(50, 100, 2):
-            unnormalized_dx = frame[i]
-            unnormalized_dy = frame[i+1]
-            
-            norm_dx = 2 * (unnormalized_dx - min_dx) / (max_dx - min_dx) - 1
-            norm_dy = 2 * (unnormalized_dy - min_dy) / (max_dy - min_dy) - 1
-            
-            norm_frame.extend([norm_dx, norm_dy])
         
         # Append the emotion encoding without normalizing
     
@@ -216,7 +233,6 @@ terminate_threads = False
 # This queue will hold the batches ready for visualization
 viz_queue = queue.Queue()
 
-
 def process_chat_message(c):
     """Process a chat message and update emotion scores."""
     print(f"{c.datetime} [{c.author.name}]- {c.message}")
@@ -239,6 +255,12 @@ def process_chat_message(c):
             else:
                 data["score"] *= 0.5  # or any other decay factor you prefer
 
+    # Normalize the scores so they add up to 1
+    total_score = sum(data["score"] for data in emotion_data.values())
+    if total_score > 0:
+        for emotion in emotion_labels:
+            emotion_data[emotion]["score"] /= total_score
+
     # Update average scores
     for i, emotion in enumerate(emotion_labels):
         shared_data['average_scores'][i] = emotion_data[emotion]["score"]
@@ -251,7 +273,7 @@ def generate_new_batch(last_frame=None):
     # If initial_data is None or empty, initialize with default values
     if last_frame is None:
         print('LAST FRAME IS NONE')
-        last_frame = torch.randn(1,5, 100).to(device)  # initialise with noise
+        last_frame = torch.randn(1,5, 50).to(device)  # initialise with noise
 
     last_frames = last_frame[0][-3:]
     norm_last_frames = normalise_generated(last_frames, max_x, min_x, max_y, min_y, max_x, min_x, max_y, min_y)

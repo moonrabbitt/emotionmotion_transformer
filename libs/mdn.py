@@ -143,14 +143,14 @@ def random_sample(pi, sigma, mu):
     return samples
 
 
-def sample(pi, sigma, mu , variance_div= 1):
+def sample(pi, sigma, mu , variance_div= 100):
     # CHANGE: Instead of random sampling, use the mean of the most probable component
     alpha_idx = torch.argmax(pi, dim=2)  # Find the index of the most probable Gaussian component
     selected_mu = mu.gather(2, alpha_idx.unsqueeze(-1).unsqueeze(-1).expand(-1, -1,-1, mu.size(-1)))
     selected_sigma = sigma.gather(2, alpha_idx.unsqueeze(-1).unsqueeze(-1).expand(-1, -1, -1, sigma.size(-1)))
     selected_sigma = selected_sigma/ variance_div
     
-    print(variance_div)
+    # print(variance_div)
     # Divide by 100 to reduce the variance of the selected Gaussian I think, Pette et al 2019 did this not sure why
     # but it seems to help model be less jaggy? - sigma is variance, so smaller sigma is closer to mean - less jaggy but more boring
     
@@ -168,3 +168,18 @@ def max_sample(pi, sigma, mu):
     selected_mu = mu.gather(2, alpha_idx.unsqueeze(-1).unsqueeze(-1).expand(-1, -1,-1, mu.size(-1)))
     next_values = selected_mu[:, -1, :]  # Use the mean of the selected component
     return next_values
+
+# def emotion_biased_sampling(pi, sigma, mu, emotion_idx, emotion_biases):
+#     # Adjust pi based on emotion biases
+#     pi_adjusted = adjust_mixing_coefficients(pi, emotion_idx, emotion_biases)
+    
+#     # Sample as usual (or with any additional logic you want to add)
+#     samples = random_sample(pi_adjusted, sigma, mu)
+#     return samples
+
+# def adjust_mixing_coefficients(pi, emotion_idx, emotion_biases):
+#     # Adjust the mixing coefficients based on the emotion
+#     # emotion_biases is a dictionary mapping from emotion index to a bias vector
+#     bias = emotion_biases[emotion_idx]
+#     pi_adjusted = apply_bias_to_pi(pi, bias)
+#     return pi_adjusted

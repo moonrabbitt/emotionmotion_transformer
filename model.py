@@ -368,13 +368,6 @@ def unnormalise_list_2D(data_tensor, max_x, min_x, max_y, min_y, max_dx, min_dx,
                 unnormalized_y = (y + 1) / 2 * (max_y - min_y) + min_y
                 unnormalized_data.extend([unnormalized_x.item(), unnormalized_y.item()])
             
-            # Unnormalize the second 50 values (x and y deltas)
-            for i in range(50, 100, 2):
-                dx = frame_data[i]
-                dy = frame_data[i+1]
-                unnormalized_dx = (dx + 1) / 2 * (max_dx - min_dx) + min_dx
-                unnormalized_dy = (dy + 1) / 2 * (max_dy - min_dy) + min_dy
-                unnormalized_data.extend([unnormalized_dx.item(), unnormalized_dy.item()])
             
             # Append the emotion encoding without unnormalizing
             unnormalized_data.extend(frame_data[-7:].tolist())
@@ -916,11 +909,12 @@ def main(args = None):
             return start_weight * (growth_factor ** adjusted_epoch)
         # Ramping process is complete
         return end_weight
+
     
     # Define  MDN loss scheduling parameters
     START_WEIGHT = 0.1  # Initial weight of MDN loss
     END_WEIGHT = 1 # Final weight of MDN loss
-    RAMP_EPOCHS = 10000  # Number of epochs over which to increase weight
+    RAMP_EPOCHS = 10000 # Number of epochs over which to increase weight
     START_AFTER  = 10000 # Number of epochs to wait before starting to increase weight
     
     
@@ -960,8 +954,6 @@ def main(args = None):
             optimizer.zero_grad(set_to_none=True)
             total_loss.backward()
             
-            
-            
             # Clip gradients
             # nn.utils.clip_grad_norm_(m.parameters(), max_norm=1)
 
@@ -983,6 +975,7 @@ def main(args = None):
                 if USE_MDN:
                     writer.add_scalar('Loss/MDN', mdn_loss.item(), epoch)
                     writer.add_scalar('Loss/MDN_Weight', mdn_weight, epoch)
+                
                 
                 writer.add_scalar('Loss/Total', total_loss.item(), epoch)
                 
@@ -1047,17 +1040,21 @@ def main(args = None):
         print('Loading model...')
         m, optimizer, scheduler, epoch, loss, train_seed = load_checkpoint(m, optimizer, CHECKPOINT_PATH,scheduler)
         
-        if USE_MDN:
-            print('MDN layer is used.')
-            keypoints_loss, emotion_loss, mdn_loss = loss
-            total_loss = keypoints_loss + emotion_loss + mdn_loss
-        else:
-            print('MDN layer is not used.')
-            keypoints_loss, emotion_loss = loss
-            total_loss = keypoints_loss + emotion_loss
-        print(f"Model {train_seed} loaded from {CHECKPOINT_PATH} (epoch {epoch}, keypoints loss: {keypoints_loss:.6f}, emotion loss: {emotion_loss:.6f} , total loss: {total_loss:.6f})")
-    
-    
+        try:
+        
+            if USE_MDN:
+                print('MDN layer is used.')
+                keypoints_loss, emotion_loss, mdn_loss = loss
+                total_loss = keypoints_loss + emotion_loss + mdn_loss
+            else:
+                print('MDN layer is not used.')
+                keypoints_loss, emotion_loss = loss
+                total_loss = keypoints_loss + emotion_loss
+            print(f"Model {train_seed} loaded from {CHECKPOINT_PATH} (epoch {epoch}, keypoints loss: {keypoints_loss:.6f}, emotion loss: {emotion_loss:.6f} , total loss: {total_loss:.6f})")
+        
+        except TypeError:
+            print(f"Model {train_seed} loaded from {CHECKPOINT_PATH} (epoch {epoch}, total loss: {loss:.6f})")
+        
 
     # Generate a sequence
     print(f'Generating sequence of {FRAMES_GENERATE} frames...')
@@ -1115,6 +1112,8 @@ def main(args = None):
     else:
         return None, train_seed
     
+
+    
 if __name__ == "__main__":
     # Define the arguments you want to pass
     args = argparse.Namespace(
@@ -1126,7 +1125,7 @@ if __name__ == "__main__":
         FRAMES_GENERATE=300,
         TRAIN=True,
         EVAL_EVERY=1000,
-        CHECKPOINT_PATH="checkpoints/proto9_checkpoint.pth",
+        CHECKPOINT_PATH="checkpoints/proto9_checkpoint_separate.pth",
         L1_LAMBDA=None,
         L2_REG=0.0,
         FINETUNE=False,
@@ -1139,9 +1138,13 @@ if __name__ == "__main__":
         DATASET = "all",
         
         # NOTES---------------------------------
-        notes = f"""Proto8 - # Define  MDN loss scheduling parameters - 
+        notes = f"""Proto8 - # trying to add separation loss - Training front only, seeing if that helps
+        
+        Define  MDN loss scheduling parameters - 
          # Define  MDN loss scheduling parameters
          linear rate increase
+         
+         
             
         trying to adapt Pette et al 2019, addign latent visualisation and analysing latent space. Might be slow, maybe take this out when live.
         
