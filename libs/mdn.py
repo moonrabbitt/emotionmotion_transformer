@@ -143,12 +143,14 @@ def random_sample(pi, sigma, mu):
     return samples
 
 
-def sample(pi, sigma, mu):
+def sample(pi, sigma, mu , variance_div= 1):
     # CHANGE: Instead of random sampling, use the mean of the most probable component
     alpha_idx = torch.argmax(pi, dim=2)  # Find the index of the most probable Gaussian component
     selected_mu = mu.gather(2, alpha_idx.unsqueeze(-1).unsqueeze(-1).expand(-1, -1,-1, mu.size(-1)))
     selected_sigma = sigma.gather(2, alpha_idx.unsqueeze(-1).unsqueeze(-1).expand(-1, -1, -1, sigma.size(-1)))
-    selected_sigma = selected_sigma/ 1000  
+    selected_sigma = selected_sigma/ variance_div
+    
+    print(variance_div)
     # Divide by 100 to reduce the variance of the selected Gaussian I think, Pette et al 2019 did this not sure why
     # but it seems to help model be less jaggy? - sigma is variance, so smaller sigma is closer to mean - less jaggy but more boring
     

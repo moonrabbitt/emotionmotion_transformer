@@ -860,6 +860,7 @@ def is_notebook():
         return False      # Probably standard Python interpreter
 
 def main(args = None):
+    global notes
     
     # If args are provided, use those; otherwise, parse from command line
     if args is None:
@@ -874,6 +875,8 @@ def main(args = None):
         # Current time for unique folder names
     current_time = datetime.now().strftime('%b%d_%H-%M-%S')
     log_dir = f'runs/motion_model_experiment_{current_time}'
+    
+    notes += f"\nTensorboard log directory: {log_dir}"
 
     writer = SummaryWriter(log_dir)
     
@@ -926,11 +929,28 @@ def main(args = None):
         # Ramping process is complete
         return end_weight
     
+    def schedule_mdn_weight_exp(start_after, epoch, start_weight, end_weight, ramp_epochs):
+        # Check if the ramping process has not started yet
+        if epoch < start_after:
+            return start_weight
+        # Adjust epoch count to start ramping from 0 after start_after
+        adjusted_epoch = epoch - start_after
+        # Check if the ramping process is ongoing
+        if adjusted_epoch < ramp_epochs:
+            # Exponential growth factor
+            growth_factor = (end_weight / start_weight) ** (1 / ramp_epochs)
+            return start_weight * (growth_factor ** adjusted_epoch)
+        # Ramping process is complete
+        return end_weight
+    
     # Define  MDN loss scheduling parameters
-    START_WEIGHT = 0  # Initial weight of MDN loss
+    START_WEIGHT = 0.1  # Initial weight of MDN loss
     END_WEIGHT = 1 # Final weight of MDN loss
-    RAMP_EPOCHS = 7000  # Number of epochs over which to increase weight
-    START_AFTER  = 2000 # Number of epochs to wait before starting to increase weight
+    RAMP_EPOCHS = 100000  # Number of epochs over which to increase weight
+    START_AFTER  = 100000 # Number of epochs to wait before starting to increase weight
+    
+    
+    notes += f"""\nMDN weight schedule: \nStart weight: {START_WEIGHT} \nEnd weight: {END_WEIGHT} \nRamp epochs: {RAMP_EPOCHS} \nStart after: {START_AFTER}"""
 
 
     if TRAIN or FINETUNE:
@@ -952,6 +972,7 @@ def main(args = None):
             # evaluate loss
             if USE_MDN:
                 mdn_weight = schedule_mdn_weight(START_AFTER,epoch, START_WEIGHT, END_WEIGHT, RAMP_EPOCHS)
+                # mdn_weight = schedule_mdn_weight_exp(START_AFTER,epoch, START_WEIGHT, END_WEIGHT, RAMP_EPOCHS)
                 pi, sigma, mu, logits, emotion_logits, loss, latent_vectors = m(xb, yb, eb)
                 mse_logits_loss, mse_emotion_loss, mdn_loss = loss
                 # total_loss = mse_logits_loss + mse_emotion_loss + mdn_loss
@@ -965,14 +986,7 @@ def main(args = None):
             optimizer.zero_grad(set_to_none=True)
             total_loss.backward()
             
-            # Log the losses
-            writer.add_scalar('Loss/Keypoints', mse_logits_loss.item(), epoch)
-            writer.add_scalar('Loss/Emotion', mse_emotion_loss.item(), epoch)
-            if USE_MDN:
-                writer.add_scalar('Loss/MDN', mdn_loss.item(), epoch)
-                writer.add_scalar('Loss/MDN_Weight', mdn_weight, epoch)
             
-            writer.add_scalar('Loss/Total', total_loss.item(), epoch)
             
             # Clip gradients
             # nn.utils.clip_grad_norm_(m.parameters(), max_norm=1)
@@ -985,8 +999,20 @@ def main(args = None):
                 losses = estimate_loss()
                 scheduler.step(losses['val'])
                 print(f"\nTrain loss: {losses['train']:.6f} val loss: {losses['val']:.6f}")
-                global notes
+                
                 notes += f"""\nEPOCH:{epoch} \nTrain loss: {losses['train']:.6f} val loss: {losses['val']:.6f}"""
+                
+                
+                # Log the losses
+                writer.add_scalar('Loss/Keypoints', mse_logits_loss.item(), epoch)
+                writer.add_scalar('Loss/Emotion', mse_emotion_loss.item(), epoch)
+                if USE_MDN:
+                    writer.add_scalar('Loss/MDN', mdn_loss.item(), epoch)
+                    writer.add_scalar('Loss/MDN_Weight', mdn_weight, epoch)
+                
+                writer.add_scalar('Loss/Total', total_loss.item(), epoch)
+                
+                
                 if (epoch != 0):
                     # Store the losses for plotting
                     train_losses.append(losses['train'])
@@ -1046,7 +1072,16 @@ def main(args = None):
         # Load the model
         print('Loading model...')
         m, optimizer, scheduler, epoch, loss, train_seed = load_checkpoint(m, optimizer, CHECKPOINT_PATH,scheduler)
-        print(f"Model {train_seed} loaded from {CHECKPOINT_PATH} (epoch {epoch}, loss {loss:.6f})")
+        
+        if USE_MDN:
+            print('MDN layer is used.')
+            keypoints_loss, emotion_loss, mdn_loss = loss
+            total_loss = keypoints_loss + emotion_loss + mdn_loss
+        else:
+            print('MDN layer is not used.')
+            keypoints_loss, emotion_loss = loss
+            total_loss = keypoints_loss + emotion_loss
+        print(f"Model {train_seed} loaded from {CHECKPOINT_PATH} (epoch {epoch}, keypoints loss: {keypoints_loss:.6f}, emotion loss: {emotion_loss:.6f} , total loss: {total_loss:.6f})")
     
     
 
@@ -1113,9 +1148,9 @@ if __name__ == "__main__":
         BLOCK_SIZE=16,
         DROPOUT=0.2,
         LEARNING_RATE=0.0001,
-        EPOCHS=10000,
+        EPOCHS=300000,
         FRAMES_GENERATE=300,
-        TRAIN=True,
+        TRAIN=False,
         EVAL_EVERY=1000,
         CHECKPOINT_PATH="checkpoints/proto8_checkpoint_temp.pth",
         L1_LAMBDA=None,
@@ -1126,15 +1161,13 @@ if __name__ == "__main__":
         PENALTY=False,
         LATENT_VIS_EVERY=1000,
         USE_MDN = True,
-        PATIENCE= 5, #multiple of EVAL_EVERY * 10 
+        PATIENCE= 35, #multiple of EVAL_EVERY * 10 - no early stopping if patience =0
         DATASET = "all",
         
         # NOTES---------------------------------
-        notes = f"""Proto8 - # Define  MDN loss scheduling parameters
-        START_WEIGHT = 0  # Initial weight of MDN loss
-        END_WEIGHT = 1 # Final weight of MDN loss
-        RAMP_EPOCHS = 7000  # Number of epochs over which to increase weight
-        START_AFTER  = 2000 # Number of epochs to wait before starting to increase weight
+        notes = f"""Proto8 - # Define  MDN loss scheduling parameters - 
+         # Define  MDN loss scheduling parameters
+         linear rate increase
             
         trying to adapt Pette et al 2019, addign latent visualisation and analysing latent space. Might be slow, maybe take this out when live.
         
@@ -1170,3 +1203,8 @@ if __name__ == "__main__":
         """
     )
     latent_space, train_seed = main(args)
+    
+    # If you want to save as a CSV file using Pandas
+    import pandas as pd
+    df = pd.DataFrame(latent_space)
+    df.to_csv(f'data/latent_space_{train_seed}.csv', index=False)
