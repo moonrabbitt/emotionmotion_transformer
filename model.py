@@ -75,6 +75,9 @@ def get_batch(split, block_size, batch_size, train_data, train_emotions, val_dat
 
     # Compute the mask to mask out -inf values
     mask = (x != float('-inf')).all(dim=-1).float()  # assuming -inf is present in any part of the data point
+    
+    # # trying this out to see if relation to emotion is better proto9 if hate remove to get back to multimodal
+    # y = torch.cat((y, e.unsqueeze(1).repeat(1, y.size(1), 1)), dim=2)
 
     # Move tensors to the designated device
     x, y, e, mask = x.to(device), y.to(device), e.to(device), mask.to(device)
@@ -213,7 +216,7 @@ class MotionModel(nn.Module):
         self.hidden_dim = hidden_dim
         self.fc1 = nn.Linear(input_dim, hidden_dim, bias=False, device=device) 
         self.fc2 = nn.Linear(hidden_dim, output_dim, bias=False,device=device)
-        self.mdn = mdn.MDN((output_dim+emotion_dim),(output_dim+emotion_dim), num_gaussians=5) 
+        self.mdn = mdn.MDN((output_dim+emotion_dim),(output_dim), num_gaussians=5) 
         # emotions
         self.emotion_fc1 = nn.Linear(emotion_dim, hidden_dim, bias=False,device=device)
         self.emotion_dropout = nn.Dropout(dropout)
@@ -278,8 +281,8 @@ class MotionModel(nn.Module):
             if L1_LAMBDA is None:
            
                 if USE_MDN:
-                    # loss = (F.mse_loss(logits, targets) , (F.mse_loss(emotion_logits, emotions)) , mdn.mdn_loss(pi, sigma, mu, targets))
-                    loss =  mdn.mdn_loss(pi, sigma, mu, targets)
+                    loss = (F.mse_loss(logits, targets) , (F.mse_loss(emotion_logits, emotions)) , mdn.mdn_loss(pi, sigma, mu, targets))
+                   
                 
                 else:
                     loss = (F.mse_loss(logits, targets) , (F.mse_loss(emotion_logits, emotions)))
@@ -339,6 +342,7 @@ def estimate_loss():
                 _,_,_,_,_, loss,_ = m(xb, yb, eb)
                 mse_logits_loss, mse_emotion_loss, mdn_loss = loss
                 total_loss = mse_logits_loss + mse_emotion_loss + mdn_loss
+                
             else:
                 _,_, loss,_ = m(xb, yb, eb)
                 mse_logits_loss, mse_emotion_loss = loss
@@ -561,7 +565,7 @@ def visualise_skeleton(all_frames, max_x, max_y,emotion_vectors=None, max_frames
         
        # Assuming emotion_vectors is a tuple (emotion_in, emotion_out)
         emotion_in, emotion_out = emotion_vectors
-        emotion_out = frame_data[-7:] #new logic MDN returns emotion logits concat to end of frame data
+        # emotion_out = frame_data[-7:] #new logic MDN returns emotion logits concat to end of frame data
 
         # Calculate percentages for emotion_in
        
