@@ -85,6 +85,8 @@ def preprocess_data(files: List[str] , dataset) -> dict:
                 conf = [1] * len(x)
                 matched_emotion = get_matched_danceDB_emotion(file)
                 # 1 emotion per file - len(emotion) = len(files)
+                if matched_emotion is None:
+                    matched_emotion = 'Mix' # default to mix if emotion not found - helps model less stuck
                 emotions.append(encode_danceDB_emotion(matched_emotion))
               
                 
@@ -514,7 +516,8 @@ def get_dance_db_files() -> list:
     }   
     path_pattern = "G:\\UAL_Thesis\\affective_computing_datasets\\DanceDBrenders\\DanceDB\\*\\*_keypoints.txt"
     all_files = glob.glob(path_pattern)
-    dance_db_files = [file for file in all_files for emotion in emotions_set if emotion.lower() in file.lower()]
+    # dance_db_files = [file for file in all_files for emotion in emotions_set if emotion.lower() in file.lower()]
+    dance_db_files = all_files
     return dance_db_files
 
 def prep_data(dataset):

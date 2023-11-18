@@ -213,7 +213,7 @@ class MotionModel(nn.Module):
         self.hidden_dim = hidden_dim
         self.fc1 = nn.Linear(input_dim, hidden_dim, bias=False, device=device) 
         self.fc2 = nn.Linear(hidden_dim, output_dim, bias=False,device=device)
-        self.mdn = mdn.MDN((output_dim+emotion_dim),output_dim, num_gaussians=5) 
+        self.mdn = mdn.MDN((output_dim+emotion_dim),(output_dim+emotion_dim), num_gaussians=5) 
         # emotions
         self.emotion_fc1 = nn.Linear(emotion_dim, hidden_dim, bias=False,device=device)
         self.emotion_dropout = nn.Dropout(dropout)
@@ -259,6 +259,7 @@ class MotionModel(nn.Module):
         
         # Output emotion logits - emotions which was used to condition the model 
         # choosing x because x should represent both keypoints and emotions for the relationship to be captured
+        # help cature emotion in relation to motion
         emotion_logits = self.emotion_fc2(torch.mean(x, dim=1) )  # B, emotion_dim
         
         if USE_MDN:
@@ -277,8 +278,9 @@ class MotionModel(nn.Module):
             if L1_LAMBDA is None:
            
                 if USE_MDN:
-                    loss = (F.mse_loss(logits, targets) , (F.mse_loss(emotion_logits, emotions)) , mdn.mdn_loss(pi, sigma, mu, targets))
-                    
+                    # loss = (F.mse_loss(logits, targets) , (F.mse_loss(emotion_logits, emotions)) , mdn.mdn_loss(pi, sigma, mu, targets))
+                    loss =  mdn.mdn_loss(pi, sigma, mu, targets)
+                
                 else:
                     loss = (F.mse_loss(logits, targets) , (F.mse_loss(emotion_logits, emotions)))
                 
@@ -559,6 +561,7 @@ def visualise_skeleton(all_frames, max_x, max_y,emotion_vectors=None, max_frames
         
        # Assuming emotion_vectors is a tuple (emotion_in, emotion_out)
         emotion_in, emotion_out = emotion_vectors
+        emotion_out = frame_data[-7:] #new logic MDN returns emotion logits concat to end of frame data
 
         # Calculate percentages for emotion_in
        
@@ -912,10 +915,10 @@ def main(args = None):
 
     
     # Define  MDN loss scheduling parameters
-    START_WEIGHT = 0.1  # Initial weight of MDN loss
+    START_WEIGHT = 1 # Initial weight of MDN loss
     END_WEIGHT = 1 # Final weight of MDN loss
-    RAMP_EPOCHS = 10000 # Number of epochs over which to increase weight
-    START_AFTER  = 10000 # Number of epochs to wait before starting to increase weight
+    RAMP_EPOCHS = 100000 # Number of epochs over which to increase weight
+    START_AFTER  = 0 # Number of epochs to wait before starting to increase weight
     
     
     notes += f"""\nMDN weight schedule: \nStart weight: {START_WEIGHT} \nEnd weight: {END_WEIGHT} \nRamp epochs: {RAMP_EPOCHS} \nStart after: {START_AFTER}"""
@@ -1125,7 +1128,7 @@ if __name__ == "__main__":
         FRAMES_GENERATE=300,
         TRAIN=True,
         EVAL_EVERY=1000,
-        CHECKPOINT_PATH="checkpoints/proto9_checkpoint_separate.pth",
+        CHECKPOINT_PATH="checkpoints/proto9_checkpoint_dance.pth",
         L1_LAMBDA=None,
         L2_REG=0.0,
         FINETUNE=False,
@@ -1138,7 +1141,7 @@ if __name__ == "__main__":
         DATASET = "all",
         
         # NOTES---------------------------------
-        notes = f"""Proto8 - # trying to add separation loss - Training front only, seeing if that helps
+        notes = f"""Proto9- # adding more dance data to help give model more diversity, hopefully it'll be less stuck
         
         Define  MDN loss scheduling parameters - 
          # Define  MDN loss scheduling parameters
