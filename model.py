@@ -203,11 +203,22 @@ class Block(nn.Module):
 
         
     def forward(self, x):
-        # x + due to residual connection
+        # x + due to residual connectio
         x = x + self.sa(self.ln1(x))
         x = x + self.ffwd(self.ln2(x))
         return x
     
+class AttentionPooling(nn.Module):
+    def __init__(self, hidden_dim,device=device):
+        super(AttentionPooling, self).__init__()
+        self.attention_weights = nn.Linear(hidden_dim, 1)
+
+    def forward(self, x):
+        # x: [B, T, hidden_dim]
+        attention_scores = self.attention_weights(x)  # [B, T, 1]
+        attention_scores = torch.softmax(attention_scores, dim=1).to(device)  # [B, T, 1]
+        weighted_average = torch.sum(x * attention_scores, dim=1).to(device)  # [B, hidden_dim]
+        return weighted_average
    
 class MotionModel(nn.Module):
     
@@ -220,13 +231,16 @@ class MotionModel(nn.Module):
         # emotions
         self.emotion_fc1 = nn.Linear(emotion_dim, hidden_dim, bias=False,device=device)
         self.emotion_dropout = nn.Dropout(dropout)
-        self.emotion_fc2 = nn.Linear(hidden_dim, emotion_dim).to(device)  # Outputs a continuous vector for emotions
+        self.emotion_fc2 = nn.Sequential(
+            nn.Linear(hidden_dim, emotion_dim, bias=False).to(device),
+            nn.ReLU()).to(device)
         
         self.positional_encoding = positional_encoding(seq_len=blocksize, d_model=hidden_dim).to(device)
         layers = [Block(n_emb=hidden_dim*2, n_heads=4) for _ in range(n_layers)] # 2* because concatenate emotion and keypoints
         layers.append(nn.LayerNorm(hidden_dim*2, device=device))
         # layers.append(nn.InstanceNorm1d(hidden_dim, device=device))
         self.blocks = nn.Sequential(*layers)
+        self.attention_pooling = AttentionPooling(hidden_dim)
 
         self.lm_head = nn.Linear(hidden_dim*2, hidden_dim, bias=False, device=device)
        
@@ -258,16 +272,20 @@ class MotionModel(nn.Module):
         x= self.lm_head(x) # B,T,hidden dimension*2 --> B,T,hidden dimension
     
         # fc2 transforms hidden dimension into output dimension
+        # make sure next frame follows on from previous frame
         logits = self.fc2(x)
         
         # Output emotion logits - emotions which was used to condition the model 
         # choosing x because x should represent both keypoints and emotions for the relationship to be captured
         # help cature emotion in relation to motion
-        emotion_logits = self.emotion_fc2(torch.mean(x, dim=1) )  # B, emotion_dim
+        # make sure frame corresponds to emotion
+        pooled_emotion_features = self.attention_pooling(x)
+        emotion_logits = self.emotion_fc2(pooled_emotion_features)  # B, emotion_dim
         
         if USE_MDN:
         # Apply MDN after dense layer  - look at https://github.com/deep-dance/core/blob/27e9c555d1c85599eba835d59a79cabb99b517c0/creator/src/model.py#L59
             combined_logits = torch.cat((logits, emotion_logits.unsqueeze(1).expand(-1, T, -1)), dim=-1)  # B, T, output_dim + emotion_dim
+            # combined_logits = torch.cat((logits, emotion_logits), dim=-1)  # B, T, output_dim + emotion_dim
             pi, sigma, mu = self.mdn(combined_logits) #fine
         
         if targets is None:
@@ -301,16 +319,21 @@ class MotionModel(nn.Module):
     def generate(self, inputs, emotions, max_new_tokens, block_size=16, USE_MDN=True):
         generated_sequence = inputs
         generated_emotions = emotions
+        MAX_VARIANCE = 1000.0
+        MIN_VARIANCE = 1.0
 
-        for _ in range(max_new_tokens):
+        for i in range(max_new_tokens):
             cond_sequence = generated_sequence[:, -block_size:]  # Use the block_size parameter
+            # Calculate variance using a cosine function
+            normalized_index = (math.pi / max_new_tokens) * i  # Normalizing the iteration index
+            variance = ((MAX_VARIANCE - MIN_VARIANCE) * (math.cos(normalized_index) + 1) / 2) + MIN_VARIANCE
 
             if USE_MDN:
                 pi, sigma, mu, logits, emotion_logits, _, _ = self(inputs=cond_sequence, emotions=generated_emotions)
 
                 # CHANGE: Instead of random sampling, use the mean of the most probable component
                 # next_values = mdn.max_sample(pi, sigma, mu)
-                next_values = mdn.sample(pi, sigma, mu)
+                next_values = mdn.sample(pi, sigma, mu, variance)
                 
                 # random sample - previous implementation
                 # next_values = mdn.sample(pi, sigma, mu)
@@ -341,7 +364,7 @@ def estimate_loss():
             if USE_MDN:
                 _,_,_,_,_, loss,_ = m(xb, yb, eb)
                 mse_logits_loss, mse_emotion_loss, mdn_loss = loss
-                total_loss = mse_logits_loss + mse_emotion_loss + mdn_loss
+                total_loss = mse_logits_loss + mse_emotion_loss*2 + mdn_loss  #increasing weight of emotion loss so output relies more on emotion
                 
             else:
                 _,_, loss,_ = m(xb, yb, eb)
@@ -919,10 +942,10 @@ def main(args = None):
 
     
     # Define  MDN loss scheduling parameters
-    START_WEIGHT = 1 # Initial weight of MDN loss
+    START_WEIGHT = 0.1 # Initial weight of MDN loss
     END_WEIGHT = 1 # Final weight of MDN loss
     RAMP_EPOCHS = 100000 # Number of epochs over which to increase weight
-    START_AFTER  = 0 # Number of epochs to wait before starting to increase weight
+    START_AFTER  = 40000 # Number of epochs to wait before starting to increase weight
     
     
     notes += f"""\nMDN weight schedule: \nStart weight: {START_WEIGHT} \nEnd weight: {END_WEIGHT} \nRamp epochs: {RAMP_EPOCHS} \nStart after: {START_AFTER}"""
@@ -1128,11 +1151,11 @@ if __name__ == "__main__":
         BLOCK_SIZE=16,
         DROPOUT=0.2,
         LEARNING_RATE=0.0001,
-        EPOCHS=30000,
+        EPOCHS=300000,
         FRAMES_GENERATE=300,
         TRAIN=True,
         EVAL_EVERY=1000,
-        CHECKPOINT_PATH="checkpoints/proto9_checkpoint_dance.pth",
+        CHECKPOINT_PATH="checkpoints/proto9_checkpoint.pth",
         L1_LAMBDA=None,
         L2_REG=0.0,
         FINETUNE=False,

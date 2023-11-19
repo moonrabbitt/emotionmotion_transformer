@@ -144,6 +144,7 @@ def random_sample(pi, sigma, mu):
 
 
 def sample(pi, sigma, mu , variance_div= 100):
+    print(variance_div)
     # CHANGE: Instead of random sampling, use the mean of the most probable component
     alpha_idx = torch.argmax(pi, dim=2)  # Find the index of the most probable Gaussian component
     selected_mu = mu.gather(2, alpha_idx.unsqueeze(-1).unsqueeze(-1).expand(-1, -1,-1, mu.size(-1)))
