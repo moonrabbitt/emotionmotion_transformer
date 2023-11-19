@@ -1,57 +1,50 @@
 # Audience Interactive Emotion-Motion Multimodal Transformer
 
-
 ## Project Overview
-This repository hosts the EmotionMotion Interactive Transformer, a system designed to integrate live audience emotional feedback from Youtube live chat into interactive performance art, which is broadcasted back into the same YouTube live as a closed loop using OBS studios. Utilizing affective computing datasets, the Sequencer processes real-time chat sentiment to influence the generated motion and narrative of the outputted artwork.
-
-
+This repository contains the EmotionMotion Interactive Transformer. This innovative system integrates real-time emotional feedback from YouTube live chat into interactive performance art. The art is then rebroadcast on the same YouTube live stream, creating a closed loop with OBS Studio. Leveraging affective computing datasets, the system processes chat sentiment to shape the motion and narrative of the resulting artwork.
 
 ## Repository Structure
 
 ## Motion Data
 
-
-
-
-
 ## Documentation Log
 
-The final product went through 10 main stages of prototyping over the course of 3 months. The documentation log is therefore broken down into these prototype stages, which is further broken down into a weekly blog format. The links to the documentations can be found below, they are broken down into individual files with each file pertaining to each stage of prototyping for ease of tracking.
+Over three months, the final product evolved through ten primary prototyping stages. The documentation log is organized according to these stages, further subdivided into weekly updates. Below are links to detailed documentation for each stage, providing a clear tracking of the project's development.
 
-[<u>Prototype 1</u>](documentation/prototype_1.md)
+Initially, the project aimed to create an emotional dance sequencer model. However, due to the scarcity of emotionally labeled dance datasets, it pivoted towards affective computing gestures.
 
-Prototype 1 is the proof of concept and focuses on getting the broadcast loop working.
+[**Prototype 1**](documentation/prototype_1.md)
 
-[<u>Prototype 2</u>](documentation/prototype_2.md)
+Prototype 1 served as a proof of concept, focusing on establishing the broadcast loop.
 
-Prototype 2 is the first iteration of the Transformer-Sequencer, which is the main component of the project. The transformer was coded from scratch based on Andrej Karpathy's tutorial on transformers but adapted to be used with keypoints which is non-categorical. 
+[**Prototype 2**](documentation/prototype_2.md)
 
-[<u>Prototype 3</u>](documentation/prototype_3.md)
+This stage involved testing various architectures, including LSTM and GANs.
 
-Added a lot of data preprocessing and improved transformer through normalisation layers and dropout layers to prevent overfitting.
+[**Prototype 3**](documentation/prototype_3.md)
 
+The third prototype introduced the Transformer-Sequencer. This component, built from scratch based on Andrej Karpathy's transformer tutorial, was adapted for non-categorical data like keypoints. The stage included extensive data preprocessing and transformer enhancements, such as normalization layers and dropout layers to prevent overfitting.
 
-[<u>Prototype 4</u>](documentation/prototype_4.md)
+[**Prototype 4**](documentation/prototype_4.md)
 
-Tried to move model from absolute coordinates to delta between T and T+1 frames to allow more control over the model. However, this did not work out, possibly due to normalisation issues.
+An attempt was made to shift the model from absolute coordinates to delta coordinates between T and T+1 frames. Unfortunately, this approach faced challenges, possibly due to normalization issues.
 
-(<u>Prototype 5</u>)[documentation/prototype_5.md]
+[**Prototype 5**](documentation/prototype_5.md)
 
-Transformer got to a good point, so integrating with live loop with live youtube chat. However when integrating with live loop, the motion generated became very stagnant and repetitive. This presents a major problem.
+With the transformer reaching a satisfactory level, it was integrated into the live loop with YouTube chat. However, the generated motion became stagnant and repetitive, posing a significant challenge.
 
-(<u>Prototype 6</u>)[documentation/prototype_6.md]
+[**Prototype 6**](documentation/prototype_6.md)
 
-Prototype 6 attempts fix model getting stuck by penalising small movements and through L1, L2 normalisations.
+Prototype 6 aimed to resolve the model's tendency to get stuck by penalizing small movements and applying L1, L2 normalizations.
 
-(<u>Prototype 7</u>)[documentation/prototype_7.md]
+[**Prototype 7**](documentation/prototype_7.md)
 
-Prototype 7 converts transformer model from single modality to multimodal. Initially model required emotion to be concatenated to the end of every frame, and it is processed together throughout the entire sequencer. This was later changed to emotion being processed separately from the frames, and only concatenated at the end of the sequencer.
+This prototype transformed the transformer model from single modality to multimodal. The initial design required emotions to be appended to each frame, processed alongside the sequencer. This was later altered to process emotions separately from frames, merging them only at the sequencer's end.
 
-(<u>Prototype 8</u>)[documentation/prototype_8.md]
+[**Prototype 8**](documentation/prototype_8.md)
 
-Prototype 8 adds MDN to the Transformer-Sequencer, which allows for the model to output a distribution of possible movements instead of a single movement. Hopefully this reduces the chances of the model being stuck and allows for more control.
+Prototype 8 introduced a Mixture Density Network (MDN) into the Transformer-Sequencer, allowing the model to output a range of potential movements rather than a singular output. This addition was intended to prevent the model from getting stuck and to enhance control over the output.
 
-(<u>Prototype 9</u>)[documentation/prototype_9.md]
+[**Prototype 9**](documentation/prototype_9.md)
 
-Exploring scheduling MDN loss and MSE loss to maximise the benefits of both. Also added some data exploration analysis.
-
+The ninth prototype explored the balancing of MDN loss and MSE loss to maximize the advantages of both. It also included additional data exploration analysis.
