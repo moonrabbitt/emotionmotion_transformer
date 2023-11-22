@@ -209,15 +209,15 @@ class Block(nn.Module):
         return x
     
 class AttentionPooling(nn.Module):
-    def __init__(self, hidden_dim,device=device):
+    def __init__(self, dim,device=device):
         super(AttentionPooling, self).__init__()
-        self.attention_weights = nn.Linear(hidden_dim, 1)
+        self.attention_weights = nn.Linear(dim, 1)
 
     def forward(self, x):
-        # x: [B, T, hidden_dim]
+        # x: [B, T, dim]
         attention_scores = self.attention_weights(x)  # [B, T, 1]
         attention_scores = torch.softmax(attention_scores, dim=1).to(device)  # [B, T, 1]
-        weighted_average = torch.sum(x * attention_scores, dim=1).to(device)  # [B, hidden_dim]
+        weighted_average = torch.sum(x * attention_scores, dim=1).to(device)  # [B, dim]
         return weighted_average
    
 class MotionModel(nn.Module):
@@ -232,15 +232,15 @@ class MotionModel(nn.Module):
         self.emotion_fc1 = nn.Linear(emotion_dim, hidden_dim, bias=False,device=device)
         self.emotion_dropout = nn.Dropout(dropout)
         self.emotion_fc2 = nn.Sequential(
-            nn.Linear(hidden_dim, emotion_dim, bias=False).to(device),
-            nn.ReLU()).to(device)
+            nn.Linear(output_dim, emotion_dim, bias=True),  #The bias allows the layer to shift the output independently of the input.
+            nn.LeakyReLU()).to(device)
         
         self.positional_encoding = positional_encoding(seq_len=blocksize, d_model=hidden_dim).to(device)
         layers = [Block(n_emb=hidden_dim*2, n_heads=4) for _ in range(n_layers)] # 2* because concatenate emotion and keypoints
         layers.append(nn.LayerNorm(hidden_dim*2, device=device))
         # layers.append(nn.InstanceNorm1d(hidden_dim, device=device))
         self.blocks = nn.Sequential(*layers)
-        self.attention_pooling = AttentionPooling(hidden_dim)
+        self.attention_pooling = AttentionPooling(output_dim)
 
         self.lm_head = nn.Linear(hidden_dim*2, hidden_dim, bias=False, device=device)
        
@@ -279,7 +279,7 @@ class MotionModel(nn.Module):
         # choosing x because x should represent both keypoints and emotions for the relationship to be captured
         # help cature emotion in relation to motion
         # make sure frame corresponds to emotion
-        pooled_emotion_features = self.attention_pooling(x)
+        pooled_emotion_features = self.attention_pooling(logits)  # B, hidden_dim
         emotion_logits = self.emotion_fc2(pooled_emotion_features)  # B, emotion_dim
         
         if USE_MDN:
@@ -299,11 +299,11 @@ class MotionModel(nn.Module):
             if L1_LAMBDA is None:
            
                 if USE_MDN:
-                    loss = (F.mse_loss(logits, targets) , (F.mse_loss(emotion_logits, emotions)) , mdn.mdn_loss(pi, sigma, mu, targets))
+                    loss = (F.mse_loss(logits, targets) , (F.mse_loss(emotion_logits, emotions))*10 , mdn.mdn_loss(pi, sigma, mu, targets))
                    
                 
                 else:
-                    loss = (F.mse_loss(logits, targets) , (F.mse_loss(emotion_logits, emotions)))
+                    loss = (F.mse_loss(logits, targets) , (F.mse_loss(emotion_logits, emotions))*2) # increase weight for emotion loss
                 
  
             else:
@@ -364,7 +364,7 @@ def estimate_loss():
             if USE_MDN:
                 _,_,_,_,_, loss,_ = m(xb, yb, eb)
                 mse_logits_loss, mse_emotion_loss, mdn_loss = loss
-                total_loss = mse_logits_loss + mse_emotion_loss*2 + mdn_loss  #increasing weight of emotion loss so output relies more on emotion
+                total_loss = mse_logits_loss + mse_emotion_loss + mdn_loss  #increasing weight of emotion loss so output relies more on emotion
                 
             else:
                 _,_, loss,_ = m(xb, yb, eb)
@@ -798,8 +798,8 @@ def set_globals(args):
     PATIENCE = args.PATIENCE
     
     # ---------------------------------
-    notes = f"""Proto8 - trying to adapt Pette et al 2019, addign latent visualisation and analysing latent space. Might be slow, maybe take this out when live.
-
+    notes = f"""Proto8 - changing from puting x into emotion_fc to putting logits instead, this is to encourage model to output more motion that is recognisable being related to emotion.
+    Currently since x has emotion concat onto the end, it seems to just learn to use x at the end with a frozen character without adjusting the motion
     
     Added MDN layer to model.
     
@@ -945,7 +945,7 @@ def main(args = None):
     START_WEIGHT = 0.1 # Initial weight of MDN loss
     END_WEIGHT = 1 # Final weight of MDN loss
     RAMP_EPOCHS = 100000 # Number of epochs over which to increase weight
-    START_AFTER  = 40000 # Number of epochs to wait before starting to increase weight
+    START_AFTER  = 60000 # Number of epochs to wait before starting to increase weight
     
     
     notes += f"""\nMDN weight schedule: \nStart weight: {START_WEIGHT} \nEnd weight: {END_WEIGHT} \nRamp epochs: {RAMP_EPOCHS} \nStart after: {START_AFTER}"""
@@ -1078,7 +1078,7 @@ def main(args = None):
                 total_loss = keypoints_loss + emotion_loss + mdn_loss
             else:
                 print('MDN layer is not used.')
-                keypoints_loss, emotion_loss = loss
+                keypoints_loss, emotion_loss , mdn_loss = loss
                 total_loss = keypoints_loss + emotion_loss
             print(f"Model {train_seed} loaded from {CHECKPOINT_PATH} (epoch {epoch}, keypoints loss: {keypoints_loss:.6f}, emotion loss: {emotion_loss:.6f} , total loss: {total_loss:.6f})")
         
@@ -1153,9 +1153,9 @@ if __name__ == "__main__":
         LEARNING_RATE=0.0001,
         EPOCHS=300000,
         FRAMES_GENERATE=300,
-        TRAIN=True,
+        TRAIN=False,
         EVAL_EVERY=1000,
-        CHECKPOINT_PATH="checkpoints/proto9_checkpoint.pth",
+        CHECKPOINT_PATH="checkpoints/proto9_checkpoint_emotion3.pth",
         L1_LAMBDA=None,
         L2_REG=0.0,
         FINETUNE=False,
@@ -1163,7 +1163,7 @@ if __name__ == "__main__":
         FINE_TUNING_EPOCHS=100000,
         PENALTY=False,
         LATENT_VIS_EVERY=1000,
-        USE_MDN = True,
+        USE_MDN = False,
         PATIENCE= 35, #multiple of EVAL_EVERY * 10 - no early stopping if patience =0
         DATASET = "all",
         

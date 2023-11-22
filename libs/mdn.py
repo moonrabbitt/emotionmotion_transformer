@@ -161,7 +161,10 @@ def sample(pi, sigma, mu , variance_div= 100):
     # random sample - previous implementation
     # next_values = mdn.sample(pi, sigma, mu)
     
+    
     return next_values
+
+# try sample from all gaussians and see the difference?
 
 def max_sample(pi, sigma, mu):
     #  CHANGE: Instead of random sampling, use the mean of the most probable component

@@ -1,57 +1,39 @@
-import pygame
-from pygame.locals import *
-from OpenGL.GL import *
-from OpenGL.GLUT import *
-from OpenGL.GLU import *
+import pyglet
+import math
 
-class OBJ:
-    def __init__(self, filename):
-        self.vertices = []
-        self.faces = []
-        self.load_obj(filename)
+# Close any open windows (if any exist)
+for window in pyglet.app.windows:
+    window.close()
 
-    def load_obj(self, filename):
-        for line in open(filename, "r"):
-            if line.startswith('#'): continue
-            values = line.split()
-            if not values: continue
+# Create the window first
+window = pyglet.window.Window(800, 600)  # Set the window size to 800x600
 
-            if values[0] == 'v':
-                self.vertices.append(list(map(float, values[1:4])))
-            elif values[0] == 'f':
-                face = []
-                for v in values[1:]:
-                    w = v.split('/')
-                    face.append(int(w[0]))
-                self.faces.append(face)
+# Set the window background color to black
+pyglet.gl.glClearColor(0,0,0,0)
 
-    def render(self):
-        glBegin(GL_TRIANGLES)
-        for face in self.faces:
-            for vertex in face:
-                glVertex3fv(self.vertices[vertex - 1])
-        glEnd()
+# Load the image
+image = pyglet.image.load('data/leg.png')
+sprite = pyglet.sprite.Sprite(image)
 
-def main():
-    pygame.init()
-    display = (800,600)
-    pygame.display.set_mode(display, DOUBLEBUF|OPENGL)
-    gluPerspective(45, (display[0]/display[1]), 0.1, 50.0)
-    glTranslatef(0.0,0.0, -5)
+# Set the position and scale of the image
+coord1 = (200, 500)  # Replace with your first coordinate
+coord2 = (200, 100)  # Replace with your second coordinate
 
-    obj = OBJ("data/human_mesh.obj")  # Replace 'yourmodel.obj' with your file name
+sprite.x = min(coord1[0], coord2[0])
+sprite.y = min(coord1[1], coord2[1])
 
-    while True:
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                pygame.quit()
-                quit()
+# Calculate the angle and set the rotation of the sprite
+angle = math.atan2(coord2[1] - coord1[1], coord2[0] - coord1[0])
+sprite.rotation = -math.degrees(angle)
 
-        glRotatef(1, 3, 1, 1)
-        glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT)
-        obj.render()
-        pygame.display.flip()
-        pygame.time.wait(10)
+# Calculate the distance between the two points and set the scale of the sprite
+distance = math.sqrt((coord2[0] - coord1[0])**2 + (coord2[1] - coord1[1])**2)
+sprite.scale = distance / max(sprite.width, sprite.height)
 
-if __name__ == "__main__":
-    main()
+@window.event
+def on_draw():
+    window.clear()
+    sprite.draw()
+
+if __name__ == '__main__':
+    pyglet.app.run()    
