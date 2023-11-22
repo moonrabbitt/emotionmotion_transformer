@@ -61,7 +61,7 @@ def visualise_body(all_frames, max_x, max_y, max_frames=500):
     limb_image = pyglet.image.load(limb_image_path)
     # Set anchor points
     limb_image.anchor_x = limb_image.width // 2  # Center of the leg image
-    limb_image.anchor_y = 0  # Top of the leg image
+    limb_image.anchor_y = limb_image.height  # Top of the leg image but inverse
     limb_sprites = {limb: pyglet.sprite.Sprite(limb_image) for limb in limb_connections}
 
     # Function to draw each frame
@@ -92,7 +92,7 @@ def visualise_body(all_frames, max_x, max_y, max_frames=500):
             # # Calculate midpoint, angle, and distance
             # mid_x, mid_y = (start_x + end_x) / 2, (start_y + end_y) / 2
             # angle = -(math.atan2(start_y - end_y, end_x - start_x) + math.pi / 2)  # Flipped y-coordinates means we also change the order here
-            angle = (math.atan2(start_y - end_y, end_x - start_x) +(math.pi/2))  # Flipped y-coordinates means we also change the order here
+            angle = (math.atan2(start_y - end_y, end_x - start_x) -(math.pi/2))  # Flipped y-coordinates means we also change the order here
             distance = math.sqrt((end_x - start_x) ** 2 + (end_y - start_y) ** 2)
 
             # Set sprite properties
