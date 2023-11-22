@@ -57,8 +57,9 @@ def visualise_body(all_frames, max_x, max_y, max_frames=500):
     limb_connections = [(keypointsMapping.index(start), keypointsMapping.index(end)) for start, end in limb_connections_names]
 
     # Load the same image for all limb connections
-    limb_image_path = 'data/leg.png'
+    limb_image_path = 'G:/Downloads/happy/L-Hip_L-Knee_norm.png'
     limb_image = pyglet.image.load(limb_image_path)
+
     # Set anchor points
     limb_image.anchor_x = limb_image.width // 2  # Center of the leg image
     limb_image.anchor_y = limb_image.height  # Top of the leg image but inverse
@@ -70,7 +71,7 @@ def visualise_body(all_frames, max_x, max_y, max_frames=500):
         for i in range(25):  # Assuming 25 keypoints
             x = frame_data[i * 2]
             y = max_y - frame_data[i * 2 + 1]
-            circle = Circle(x, y, 5, color=(0, 255, 0))
+            circle = Circle(x, y, 5, color=(255, 255, 255))
             circle.draw()
         
         
