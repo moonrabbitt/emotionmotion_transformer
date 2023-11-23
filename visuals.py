@@ -99,30 +99,48 @@ def visualise_body(all_frames, max_x, max_y, max_frames=500):
 """
 
     _fragment_source = """#version 330 core
-        in vec3 texture_coords;
-        out vec4 final_colors;
+    in vec3 texture_coords;
+    out vec4 final_colors;
 
-        uniform sampler2D our_texture;
+    uniform sampler2D our_texture;
 
-        void main()
-        {
-            final_colors = texture(our_texture, texture_coords.xy);
-        }
+    void main()
+    {
+        final_colors = texture(our_texture, texture_coords.xy);
+    }
     """
+    
+    _compute_source = """#version 430 core
+    layout (local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+
+    layout(rgba32f) uniform image2D img_output;
+    uniform float time;
+
+    void main() {
+    ivec2 texel_coord = ivec2(gl_GlobalInvocationID.xy);
+    
+    // Base color change on position
+    float base_red = float(texel_coord.x) / (gl_NumWorkGroups.x);
+    float base_green = float(texel_coord.y) / (gl_NumWorkGroups.y);
+
+    // Modulate color based on time
+    float time_red = (sin(time) + 1.0) / 2.0;  // Oscillates between 0 and 1
+    float time_green = (cos(time) + 1.0) / 2.0;  // Oscillates between 0 and 1
+
+    // Combine the position-based color with the time-based modulation
+    vec4 value = vec4(base_red * time_red, base_green * time_green, 0.0, 1.0);
+
+    imageStore(img_output, texel_coord, value);
+}
+    """
+
 
     vert_shader = Shader(_vertex_source, 'vertex')
     frag_shader = Shader(_fragment_source, 'fragment')
     shader_program = ShaderProgram(vert_shader, frag_shader)
+    program = pyglet.graphics.shader.ComputeShaderProgram(_compute_source)
     
-    tex = pyglet.resource.texture('compute_output.png')
-    group = RenderGroup(tex, shader_program)
-    indices = (0, 1, 2, 0, 2, 3)
-    vertex_positions = create_quad(400, 200, tex)
-
-    # count, mode, indices, batch, group, *data
-    vertex_list = shader_program.vertex_list_indexed(4, GL_TRIANGLES, indices, batch, group,
-                                                    position=('f', vertex_positions),
-                                                    tex_coords=('f', tex.tex_coords))
+    
 
             
 
@@ -363,6 +381,25 @@ def visualise_body(all_frames, max_x, max_y, max_frames=500):
     @window.event
     def on_draw():
         window.clear()
+        
+        tex = pyglet.image.Texture.create(window.width, window.height, internalformat=GL_RGBA32F)
+        tex.bind_image_texture(unit=program.uniforms['img_output'].location)
+        
+        current_time = pyglet.clock.tick()
+        program['time'] = frame_index
+        
+        with program:
+            program.dispatch(tex.width, tex.height, 1, barrier=GL_ALL_BARRIER_BITS)
+        
+        # tex = pyglet.resource.texture('data/leg.png')
+        group = RenderGroup(tex, shader_program)
+        indices = (0, 1, 2, 0, 2, 3)
+        vertex_positions = create_quad(0, 0, tex)
+
+        # count, mode, indices, batch, group, *data
+        vertex_list = shader_program.vertex_list_indexed(4, GL_TRIANGLES, indices, batch, group,
+                                                        position=('f', vertex_positions),
+                                                        tex_coords=('f', tex.tex_coords))
 
         batch.draw()
             
