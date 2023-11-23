@@ -28,89 +28,7 @@ def visualise_body(all_frames, max_x, max_y, max_frames=500):
     # Pyglet window initialization
     window = pyglet.window.Window(int(max_x) + 50, int(max_y) + 50)
     
-    # Load the fragment shader
-    fragment_shader_source = '''
-uniform sampler2D tex0;
-uniform vec2 pixel;
- 
-void main() {
-    // retrieve the texture coordinate
-    vec2 c = gl_TexCoord[0].xy;
- 
-    // and the current pixel
-    vec3 current = texture2D(tex0, c).rgb;
- 
-    // count the neightbouring pixels with a value greater than zero
-    vec3 neighbours = vec3(0.0);
-    neighbours += vec3(greaterThan(texture2D(tex0, c + pixel*vec2(-1,-1)).rgb, vec3(0.0)));
-    neighbours += vec3(greaterThan(texture2D(tex0, c + pixel*vec2(-1, 0)).rgb, vec3(0.0)));
-    neighbours += vec3(greaterThan(texture2D(tex0, c + pixel*vec2(-1, 1)).rgb, vec3(0.0)));
-    neighbours += vec3(greaterThan(texture2D(tex0, c + pixel*vec2( 0,-1)).rgb, vec3(0.0)));
-    neighbours += vec3(greaterThan(texture2D(tex0, c + pixel*vec2( 0, 1)).rgb, vec3(0.0)));
-    neighbours += vec3(greaterThan(texture2D(tex0, c + pixel*vec2( 1,-1)).rgb, vec3(0.0)));
-    neighbours += vec3(greaterThan(texture2D(tex0, c + pixel*vec2( 1, 0)).rgb, vec3(0.0)));
-    neighbours += vec3(greaterThan(texture2D(tex0, c + pixel*vec2( 1, 1)).rgb, vec3(0.0)));
- 
-    // check if the current pixel is alive
-    vec3 live = vec3(greaterThan(current, vec3(0.0)));
- 
-    // resurect if we are not live, and have 3 live neighrbours
-    current += (1.0-live) * vec3(equal(neighbours, vec3(3.0)));
- 
-    // kill if we do not have either 3 or 2 neighbours
-    current *= vec3(equal(neighbours, vec3(2.0))) + vec3(equal(neighbours, vec3(3.0)));
- 
-    // fade the current pixel as it ages
-    current -= vec3(greaterThan(current, vec3(0.4)))*0.05;
- 
-    // write out the pixel
-    gl_FragColor = vec4(current, 1.0);
-}
-'''
-    
-    
 
-    # A simple vertex shader
-    vertex_shader_source = '''
-    void main() {
-        // transform the vertex position
-        gl_Position = gl_ModelViewProjectionMatrix * gl_Vertex;
-        // pass through the texture coordinate
-        gl_TexCoord[0] = gl_MultiTexCoord0;
-    }
-    '''
-
-    # Create shader program
-    shader = Shader([vertex_shader_source], [fragment_shader_source])
-    
-    # bind our shader
-    shader.bind()
-    # set the correct texture unit
-    shader.uniformi('tex0', 0)
-    # unbind the shader
-    shader.unbind()
-    
-    # create the texture
-    texture = pyglet.image.Texture.create(window.width, window.height, GL_RGBA)
-    
-    # create a fullscreen quad
-    batch = pyglet.graphics.Batch()
-    batch.add(4, GL_QUADS, None, ('v2i', (0,0, 1,0, 1,1, 0,1)), ('t2f', (0.0,0.0, 1.0,0.0, 1.0,1.0, 0.0,1.0)))
-    
-    # utility function to copy the framebuffer into a texture
-    def copyFramebuffer(tex, *size):
-        # if we are given a new size
-        if len(size) == 2:
-            # resize the texture to match
-            tex.width, tex.height = size[0], size[1]
-    
-        # bind the texture
-        glBindTexture(tex.target, tex.id)
-        # copy the framebuffer
-        glCopyTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 0, 0, tex.width, tex.height, 0);
-        # unbind the texture
-        glBindTexture(tex.target, 0)
-        
     # Load the keypoints mapping-------------------------------------------------------------------------------------------------------------------
     
     keypointsMapping = ['Nose', 'Neck', 'R-Sho', 'R-Elb', 'R-Wr', 'L-Sho', 
@@ -348,22 +266,6 @@ void main() {
     @window.event
     def on_draw():
         window.clear()
-            
-            # bind the texture
-        glBindTexture(texture.target, texture.id)
-        # and the shader
-        shader.bind()
-    
-        # draw our fullscreen quad
-        batch.draw()
-    
-        # unbind the shader
-        shader.unbind()
-        # an the texture
-        glBindTexture(texture.target, 0)
-    
-        # copy the result back into the texture
-        copyFramebuffer(texture)    
 
         
         if frame_index < len(all_frames):
