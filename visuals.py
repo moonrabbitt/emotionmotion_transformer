@@ -7,7 +7,7 @@ from pyglet.graphics.shader import Shader, ShaderProgram
 from pyglet.gl import *
 from pyglet.graphics import Group
 
-
+# https://github.com/pyglet/pyglet/blob/master/examples/opengl/opengl_shader.py
 class RenderGroup(Group):
     """A Group that enables and binds a Texture and ShaderProgram.
 
@@ -75,6 +75,9 @@ def load_shader(shader_file):
 def visualise_body(all_frames, max_x, max_y, max_frames=500):
     global frame_index
     frame_index = 0
+    
+    global start_time
+    start_time = time.time()
 
     # Pyglet window initialization
     window = pyglet.window.Window(int(max_x) + 50, int(max_y) + 50)
@@ -337,17 +340,24 @@ def visualise_body(all_frames, max_x, max_y, max_frames=500):
                     sprite.height = eye_height*2
                     sprite.scale = 0.02
                 
-                elif limb == (25,) and not is_blinking: # L-Pupil
-                    sprite.width = eye_width
-                    sprite.height = sprite.width
-                    sprite.scale = 0.01
-                    limb = (15,)
+                elif limb == (25,) : # L-Pupil
+                    if not is_blinking:
+                        sprite.width = eye_width
+                        sprite.height = sprite.width
+                        sprite.scale = 0.01
+                        limb = (15,)
+                    else:
+                        continue
                 
-                elif limb == (26,) and not is_blinking: # R-Pupil
-                    sprite.width = eye_width
-                    sprite.height = sprite.width
-                    sprite.scale = 0.01
-                    limb = (16,)
+                elif limb == (26,): # R-Pupil
+                    if not is_blinking:
+                        sprite.width = eye_width
+                        sprite.height = sprite.width
+                        sprite.scale = 0.01
+                        limb = (16,)
+                    else:
+                        continue
+                    
                   
                 else: # R-Wr
                     sprite.width = hand_width
@@ -385,8 +395,8 @@ def visualise_body(all_frames, max_x, max_y, max_frames=500):
         tex = pyglet.image.Texture.create(window.width, window.height, internalformat=GL_RGBA32F)
         tex.bind_image_texture(unit=program.uniforms['img_output'].location)
         
-        current_time = pyglet.clock.tick()
-        program['time'] = frame_index
+        current_time = (time.time()-start_time)*0.6
+        program['time'] = current_time
         
         with program:
             program.dispatch(tex.width, tex.height, 1, barrier=GL_ALL_BARRIER_BITS)
@@ -416,7 +426,7 @@ def visualise_body(all_frames, max_x, max_y, max_frames=500):
             pyglet.app.exit()
 
     # Schedule update
-    pyglet.clock.schedule_interval(update, 0.25)
+    pyglet.clock.schedule_interval(update, 0.15)
 
     # Run the Pyglet application
     pyglet.app.run()
