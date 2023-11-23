@@ -4,26 +4,23 @@ import time
 from pyglet.shapes import Circle
 import json
 
+# Constants for blinking
+BLINK_INTERVAL = 10  # The number of frames before a blink happens
+BLINK_DURATION = 2   # The number of frames the blink lasts
+
+
 def visualise_body(all_frames, max_x, max_y, max_frames=500):
+    global frame_index
+    frame_index = 0
+
     # Pyglet window initialization
     window = pyglet.window.Window(int(max_x) + 50, int(max_y) + 50)
-
-    # Define the limb connections based on keypoints
-    # limb_connections = [
-    #     (0, 1), (1, 2), (2, 3), (3, 4),
-    #     (1, 5), (5, 6), (6, 7),
-    #     (1, 8), (8, 9), (9, 10), (10, 11),
-    #     (8, 12), (12, 13), (13, 14),
-    #     (0, 15), (15, 16), (0, 17), (17, 18),
-    #     (14, 19), (14, 20), (14, 21),
-    #     (11, 22), (11, 23), (11, 24)
-    # ]
     
     keypointsMapping = ['Nose', 'Neck', 'R-Sho', 'R-Elb', 'R-Wr', 'L-Sho', 
                     'L-Elb', 'L-Wr', 'MidHip', 'R-Hip', 'R-Knee', 'R-Ank', 
                     'L-Hip', 'L-Knee', 'L-Ank', 'R-Eye', 'L-Eye', 'R-Ear', 
                     'L-Ear', 'L-BigToe', 'L-SmallToe', 'L-Heel', 'R-BigToe', 
-                    'R-SmallToe', 'R-Heel']
+                    'R-SmallToe', 'R-Heel', 'R-Pupil' , 'L-Pupil'] #L-Pupil and R-Pupil are not in the original keypointsMapping
 
     # Define the limb connections using names
     limb_connections_names = [
@@ -56,15 +53,19 @@ def visualise_body(all_frames, max_x, max_y, max_frames=500):
         ("L-BigToe","L-SmallToe"),
         ("R-BigToe","R-SmallToe"),
         ('L-Wr',),
-        ('R-Wr',)
+        ('R-Wr',),
+        ('L-Eye',),
+        ('L-Pupil',),
+        ('R-Eye',),
+        ('R-Pupil',),
         
     ]
     
     # Loading specific images for each limb connection
     limb_sprites = {}
     for connection in limb_connections_names:
-        print(connection)
-        print(len(connection))        
+        # print(connection)
+        # print(len(connection))        
         if len(connection) == 1:
             if connection == ('Nose',):
                 image_path = f'G:/Downloads/happy/Nose_NORM.png'
@@ -87,6 +88,36 @@ def visualise_body(all_frames, max_x, max_y, max_frames=500):
                 limb_image.anchor_y = limb_image.height
                 hand_width = limb_image.width
                 hand_height = limb_image.height
+                
+            elif connection == ('L-Eye',):
+                image_path = f'G:/Downloads/happy/L-Eye_NORM.png'
+                limb_image = pyglet.image.load(image_path)
+                limb_image.anchor_x = 0
+                limb_image.anchor_y = limb_image.height//2
+                eye_width = limb_image.width
+                eye_height = limb_image.height
+            
+            elif connection == ('L-Pupil',):
+                # Load pupil images and set properties
+                image_path = 'G:/Downloads/happy/L-Pupil_NORM.png' 
+                limb_image = pyglet.image.load(image_path)
+                limb_image.anchor_x = 0
+                limb_image.anchor_y = limb_image.height//2
+                
+                
+            elif connection == ('R-Eye',):
+                image_path = f'G:/Downloads/happy/R-Eye_NORM.png'
+                limb_image = pyglet.image.load(image_path)
+                limb_image.anchor_x = limb_image.width 
+                limb_image.anchor_y = limb_image.height//2
+                eye_width = limb_image.width
+                eye_height = limb_image.height
+            
+            elif connection == ('R-Pupil',):
+                image_path = 'G:/Downloads/happy/R-Pupil_NORM.png'
+                limb_image = pyglet.image.load(image_path)
+                limb_image.anchor_x = limb_image.width 
+                limb_image.anchor_y = limb_image.height//2
             
             limb_sprites[(keypointsMapping.index(connection[0]),)] = pyglet.sprite.Sprite(limb_image)
             
@@ -98,6 +129,7 @@ def visualise_body(all_frames, max_x, max_y, max_frames=500):
             limb_image.anchor_y = limb_image.height
             body_width = limb_image.width
             body_height = limb_image.height
+            
             limb_sprites[(keypointsMapping.index(connection[0]), keypointsMapping.index(connection[1]), keypointsMapping.index(connection[2]), keypointsMapping.index(connection[3]))]  = pyglet.sprite.Sprite(limb_image)
 
         else:
@@ -107,6 +139,7 @@ def visualise_body(all_frames, max_x, max_y, max_frames=500):
                 limb_image = pyglet.image.load(image_path)
                 limb_image.anchor_x = limb_image.width // 2
                 limb_image.anchor_y = limb_image.height
+                
                 limb_sprites[(keypointsMapping.index(connection[0]), keypointsMapping.index(connection[1]))] = pyglet.sprite.Sprite(limb_image)
            
             except:
@@ -114,6 +147,12 @@ def visualise_body(all_frames, max_x, max_y, max_frames=500):
         
     # Function to draw each frame
     def draw_frame(frame_data):
+        
+        is_blinking = frame_index % BLINK_INTERVAL < BLINK_DURATION
+        
+        print(is_blinking)
+        print(frame_index)
+        print(frame_index % BLINK_INTERVAL)
         
         for i in range(25):  # Assuming 25 keypoints
             x = frame_data[i * 2]
@@ -160,6 +199,28 @@ def visualise_body(all_frames, max_x, max_y, max_frames=500):
                     sprite.width = head_width
                     sprite.height = head_height
                     sprite.scale = 0.3
+                
+                elif limb == (15,): # L-Eye
+                    sprite.width = eye_width
+                    sprite.height = eye_height*2
+                    sprite.scale = 0.02
+                    
+                elif limb == (16,): # R-Eye
+                    sprite.width = eye_width
+                    sprite.height = eye_height*2
+                    sprite.scale = 0.02
+                
+                elif limb == (25,) and not is_blinking: # L-Pupil
+                    sprite.width = eye_width
+                    sprite.height = sprite.width
+                    sprite.scale = 0.01
+                    limb = (15,)
+                
+                elif limb == (26,) and not is_blinking: # R-Pupil
+                    sprite.width = eye_width
+                    sprite.height = sprite.width
+                    sprite.scale = 0.01
+                    limb = (16,)
                   
                 else: # R-Wr
                     sprite.width = hand_width
@@ -198,7 +259,7 @@ def visualise_body(all_frames, max_x, max_y, max_frames=500):
 
     # Update function for animation
     def update(dt):
-        nonlocal frame_index
+        global frame_index
         frame_index += 1
         if frame_index >= len(all_frames):
             pyglet.app.exit()
@@ -207,11 +268,11 @@ def visualise_body(all_frames, max_x, max_y, max_frames=500):
     pyglet.clock.schedule_interval(update, 0.25)
 
     # Run the Pyglet application
-    frame_index = 0
     pyglet.app.run()
 
 
 if __name__ == '__main__':
+    
     
     
     # Read data from a JSON file
@@ -224,8 +285,6 @@ if __name__ == '__main__':
     max_x = loaded_data["max_x"]
     min_y = loaded_data["min_y"]
     max_y = loaded_data["max_y"]
-    # Access other variables in a similar way
-
 
     # Example usage
     all_frames = unnorm_out # Your frames data
