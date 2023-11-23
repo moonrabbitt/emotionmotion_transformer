@@ -50,21 +50,68 @@ def visualise_body(all_frames, max_x, max_y, max_frames=500):
         ("L-Ank", "L-Heel"),
         ("R-Ank", "R-BigToe"),
         ("R-Ank", "R-SmallToe"),
-        ("R-Ank", "R-Heel")
+        ("R-Ank", "R-Heel"),
+        ("R-Sho", "L-Sho","L-Hip","R-Hip"),
+        ("Nose",),
+        ("L-BigToe","L-SmallToe"),
+        ("R-BigToe","R-SmallToe"),
+        ('L-Wr',),
+        ('R-Wr',)
+        
     ]
+    
+    # Loading specific images for each limb connection
+    limb_sprites = {}
+    for connection in limb_connections_names:
+        print(connection)
+        print(len(connection))        
+        if len(connection) == 1:
+            if connection == ('Nose',):
+                image_path = f'G:/Downloads/happy/Nose_NORM.png'
+                limb_image = pyglet.image.load(image_path)
+                limb_image.anchor_x = limb_image.width // 2
+                limb_image.anchor_y = limb_image.height//2
+                head_width = limb_image.width
+                head_height = limb_image.height
+            elif connection == ('L-Wr',):
+                image_path = f'G:/Downloads/happy/L-Wr_NORM.png'
+                limb_image = pyglet.image.load(image_path)
+                limb_image.anchor_x = limb_image.width // 2
+                limb_image.anchor_y = limb_image.height
+                hand_width = limb_image.width
+                hand_height = limb_image.height
+            elif connection == ('R-Wr',):
+                image_path = f'G:/Downloads/happy/R-Wr_NORM.png'
+                limb_image = pyglet.image.load(image_path)
+                limb_image.anchor_x = limb_image.width // 2
+                limb_image.anchor_y = limb_image.height
+                hand_width = limb_image.width
+                hand_height = limb_image.height
+            
+            limb_sprites[(keypointsMapping.index(connection[0]),)] = pyglet.sprite.Sprite(limb_image)
+            
+        elif len(connection) == 4:
+            # Special case: multiple keypoints (e.g., four points)
+            image_path = f'G:/Downloads/happy/R-Sho_L-Sho_L-Hip_R-Hip_NORM.png'
+            limb_image = pyglet.image.load(image_path)
+            limb_image.anchor_x = limb_image.width // 2
+            limb_image.anchor_y = limb_image.height
+            body_width = limb_image.width
+            body_height = limb_image.height
+            limb_sprites[(keypointsMapping.index(connection[0]), keypointsMapping.index(connection[1]), keypointsMapping.index(connection[2]), keypointsMapping.index(connection[3]))]  = pyglet.sprite.Sprite(limb_image)
 
-    # Convert limb connection names to index pairs
-    limb_connections = [(keypointsMapping.index(start), keypointsMapping.index(end)) for start, end in limb_connections_names]
-
-    # Load the same image for all limb connections
-    limb_image_path = 'G:/Downloads/happy/L-Hip_L-Knee_norm.png'
-    limb_image = pyglet.image.load(limb_image_path)
-
-    # Set anchor points
-    limb_image.anchor_x = limb_image.width // 2  # Center of the leg image
-    limb_image.anchor_y = limb_image.height  # Top of the leg image but inverse
-    limb_sprites = {limb: pyglet.sprite.Sprite(limb_image) for limb in limb_connections}
-
+        else:
+            # Standard case: connection between two keypoints
+            try:
+                image_path = f'G:/Downloads/happy/{connection[0]}_{connection[1]}_NORM.png'
+                limb_image = pyglet.image.load(image_path)
+                limb_image.anchor_x = limb_image.width // 2
+                limb_image.anchor_y = limb_image.height
+                limb_sprites[(keypointsMapping.index(connection[0]), keypointsMapping.index(connection[1]))] = pyglet.sprite.Sprite(limb_image)
+           
+            except:
+                continue
+        
     # Function to draw each frame
     def draw_frame(frame_data):
         
@@ -75,34 +122,70 @@ def visualise_body(all_frames, max_x, max_y, max_frames=500):
             circle.draw()
         
         
-        
         for limb, sprite in limb_sprites.items():
-            start_idx, end_idx = limb
-            start_x, start_y = frame_data[start_idx * 2], max_y - frame_data[start_idx * 2 + 1]
-            end_x, end_y = frame_data[end_idx * 2], max_y - frame_data[end_idx * 2 + 1]  # y needs to invert
-            
-            # Reset sprite properties
-
-            
             sprite.x = 0
             sprite.y = 0
             sprite.rotation = 0
             sprite.scale = 1
-
-
-            # # Calculate midpoint, angle, and distance
-            # mid_x, mid_y = (start_x + end_x) / 2, (start_y + end_y) / 2
-            # angle = -(math.atan2(start_y - end_y, end_x - start_x) + math.pi / 2)  # Flipped y-coordinates means we also change the order here
-            angle = (math.atan2(start_y - end_y, end_x - start_x) -(math.pi/2))  # Flipped y-coordinates means we also change the order here
-            distance = math.sqrt((end_x - start_x) ** 2 + (end_y - start_y) ** 2)
-
-            # Set sprite properties
             
-            sprite.rotation = math.degrees(angle)
+            if len(limb) == 4:
+                
+                sprite.width = body_width
+                sprite.height = body_height
+      
+                # Calculate the midpoints for shoulders and hips
+                mid_sho_x = (frame_data[limb[0] * 2] + frame_data[limb[1] * 2]) / 2
+                mid_sho_y = max_y -(frame_data[limb[0] * 2 + 1] + frame_data[limb[1] * 2 + 1]) / 2
+                mid_hip_x = (frame_data[limb[2] * 2] + frame_data[limb[3] * 2]) / 2
+                mid_hip_y = max_y -(frame_data[limb[2] * 2 + 1] + frame_data[limb[3] * 2 + 1]) / 2
+
+                # Calculate the distances for height and width
+                height = abs(mid_sho_y - mid_hip_y)
+                # height = abs(mid_sho_y - mid_hip_y)
+                width_sho = abs(frame_data[limb[0] * 2] - frame_data[limb[1] * 2])
+                width_hip = abs(frame_data[limb[2] * 2] - frame_data[limb[3] * 2])
+                width =  width_hip   # Add some padding
+                # Set sprite properties
+                
+                sprite.scale_x = (width / sprite.width)*1.8
+                sprite.scale_y = (height / sprite.height)*1.2
+                
+                sprite.rotation = math.atan2(mid_hip_y - mid_sho_y, mid_hip_x - mid_sho_x)
+                
+                # Set the position to the midpoint between shoulders and hips
+                sprite.x, sprite.y = mid_sho_x , mid_sho_y 
             
-            sprite.scale = distance / sprite.height
+            elif len(limb) == 1:
+                if limb == (0,): # Nose
+                    sprite.width = head_width
+                    sprite.height = head_height
+                    sprite.scale = 0.3
+                  
+                else: # R-Wr
+                    sprite.width = hand_width
+                    sprite.height = hand_height
+                    sprite.scale = 0.3
+                    
+                
+                sprite.x, sprite.y = frame_data[limb[0] * 2], max_y - frame_data[limb[0] * 2 + 1]
+                        
+            else:
+                start_idx, end_idx = limb
+                start_x, start_y = frame_data[start_idx * 2], max_y - frame_data[start_idx * 2 + 1]
+                end_x, end_y = frame_data[end_idx * 2], max_y - frame_data[end_idx * 2 + 1]  # y needs to invert
+             
+                # # Calculate midpoint, angle, and distance
+                angle = (math.atan2(start_y - end_y, end_x - start_x) -(math.pi/2))  # Flipped y-coordinates means we also change the order here
+                distance = math.sqrt((end_x - start_x) ** 2 + (end_y - start_y) ** 2)
+
+                # Set sprite properties
+                
+                sprite.rotation = math.degrees(angle)
+                
+                sprite.scale = (distance / sprite.height)*1.1
+                
+                sprite.x, sprite.y = start_x, start_y
             
-            sprite.x, sprite.y = start_x, start_y
             sprite.draw()
 
 
