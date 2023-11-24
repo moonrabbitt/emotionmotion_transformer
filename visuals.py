@@ -72,7 +72,7 @@ def load_shader(shader_file):
 
     return shader
 
-def visualise_body(all_frames, max_x, max_y, max_frames=500):
+def visualise_body(all_frames, max_x, max_y,no_window, max_frames=500):
     global frame_index
     frame_index = 0
     
@@ -80,7 +80,10 @@ def visualise_body(all_frames, max_x, max_y, max_frames=500):
     start_time = time.time()
 
     # Pyglet window initialization
-    window = pyglet.window.Window(int(max_x) + 50, int(max_y) + 50)
+    if no_window.value == True:
+        
+        window = pyglet.window.Window(int(max_x) + 50, int(max_y) + 50)
+        no_window.value = False
     
     
     _vertex_source = """#version 330 core
@@ -421,8 +424,8 @@ def visualise_body(all_frames, max_x, max_y, max_frames=500):
     def update(dt):
         global frame_index
         frame_index += 1
-        if frame_index >= len(all_frames):
-            pyglet.app.exit()
+        # if frame_index >= len(all_frames):
+        #     pyglet.app.exit()
 
     # Schedule update
     pyglet.clock.schedule_interval(update, 0.15)
@@ -430,23 +433,19 @@ def visualise_body(all_frames, max_x, max_y, max_frames=500):
     # Run the Pyglet application
     pyglet.app.run()
 
-import threading
-import json
-
-# Define a function that wraps the visualise_body call
-def visualise_thread(all_frames, max_x, max_y):
-    visualise_body(all_frames, max_x, max_y)
-
-if __name__ == '__main__':
-    
-    import multiprocessing
+import multiprocessing
 import json
 
 # Define the function that wraps the visualise_body call
 def visualise_process(all_frames, max_x, max_y):
     visualise_body(all_frames, max_x, max_y)
 
+
+
 if __name__ == '__main__':
+
+    manager = multiprocessing.Manager()
+    no_window = manager.Value('b', True)  # 'b' indicates a boolean type
     
     # Read data from a JSON file
     with open('data/data.json', 'r') as file:
@@ -459,13 +458,14 @@ if __name__ == '__main__':
 
     # Split all_frames into parts for multiple processes
     # This is a simple split, adjust based on your data structure
-    num_processes = multiprocessing.cpu_count()
+    num_processes = 2
     chunk_size = len(unnorm_out) // num_processes
     all_frames_chunks = [unnorm_out[i:i + chunk_size] for i in range(0, len(unnorm_out), chunk_size)]
 
     # Create a list to hold the processes
     processes = []
-
+    
+    
     # Create and start processes
     for chunk in all_frames_chunks:
         p = multiprocessing.Process(target=visualise_process, args=(chunk, max_x, max_y))
@@ -477,3 +477,5 @@ if __name__ == '__main__':
         p.join()
 
     print("Visualisation completed")
+
+    pyglet.app.exit()

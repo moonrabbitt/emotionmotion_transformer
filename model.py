@@ -230,7 +230,7 @@ class MotionModel(nn.Module):
         self.mdn = mdn.MDN((output_dim+emotion_dim),(output_dim), num_gaussians=5) 
         # emotions
         self.emotion_fc1 = nn.Linear(emotion_dim, hidden_dim, bias=False,device=device)
-        self.emotion_dropout = nn.Dropout(dropout)
+        self.emotion_dropout = nn.Dropout(0.3)
         self.emotion_fc2 = nn.Sequential(
             nn.Linear(output_dim, emotion_dim, bias=True),  #The bias allows the layer to shift the output independently of the input.
             nn.LeakyReLU()).to(device)
@@ -1150,7 +1150,7 @@ if __name__ == "__main__":
     args = argparse.Namespace(
         BATCH_SIZE=8,
         BLOCK_SIZE=16,
-        DROPOUT=0.3,
+        DROPOUT=0.2,
         LEARNING_RATE=0.0001,
         EPOCHS=300000,
         FRAMES_GENERATE=300,

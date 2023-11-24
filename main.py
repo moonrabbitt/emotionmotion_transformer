@@ -7,6 +7,7 @@ from model import *
 import pytchat
 from data import *
 from visuals import visualise_body
+import pyglet
 
 # Use a pipeline as a high-level helper
 from transformers import pipeline
@@ -299,29 +300,34 @@ def generate_batches_periodically(queue, period=2, last_frame=None):
         last_frame = unnorm_out
         
 
-def visualise(unnorm_out, emotion_vectors):
+def visualise(unnorm_out, emotion_vectors ,window):
     # visualize
     emotion_in, generated_emotion = emotion_vectors 
     emotion_vectors = (emotion_in[0], generated_emotion[0]) #quick fix
     
-    visualise_body(unnorm_out[0],max_x, max_y)
+    visualise_body(unnorm_out[0],max_x, max_y, window)
     # visualise_skeleton(unnorm_out[0], max_x, max_y, emotion_vectors,max_frames=FRAMES_GENERATE,save = False,save_path=None,prefix=f'{EPOCHS}_main_test',train_seed=train_seed,delta=False,destroy=False)
 
-def visualise_process(queue):
+def visualise_process(queue,window):
     while True:
         batch = queue.get()  # Get the tuple from the queue
         if batch is None:  # Check if the process should terminate
             break
         unnorm_out, emotion_vectors = batch  # Unpack the tuple
-        visualise(unnorm_out, emotion_vectors)
+        visualise(unnorm_out, emotion_vectors,window)
 
 
 if __name__ == '__main__':
     # Process communication queue
     viz_queue = multiprocessing.Queue()
-
+    
+    # so multiple windows dont show up
+    manager = multiprocessing.Manager()
+    no_window = manager.Value('b', True)  # 'b' indicates a boolean type 
+    
+    
     # Start the processes
-    visualisation_process = multiprocessing.Process(target=visualise_process, args=(viz_queue,))
+    visualisation_process = multiprocessing.Process(target=visualise_process, args=(viz_queue,no_window))
     generation_process = multiprocessing.Process(target=generate_batches_periodically, args=(viz_queue, 10))
 
     visualisation_process.start()
@@ -340,3 +346,5 @@ if __name__ == '__main__':
     # Wait for processes to finish
     visualisation_process.join()
     generation_process.join()
+    
+    pyglet.app.exit()
