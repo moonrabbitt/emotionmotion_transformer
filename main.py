@@ -6,9 +6,11 @@ import queue
 from model import *
 import pytchat
 from data import *
+from visuals import visualise_body
 
 # Use a pipeline as a high-level helper
 from transformers import pipeline
+
 
 pipe = pipeline("text-classification", model="michellejieli/emotion_text_classifier")
 # Load model directly
@@ -101,7 +103,7 @@ args = argparse.Namespace(
         FRAMES_GENERATE=300,
         TRAIN=False,
         EVAL_EVERY=1000,
-        CHECKPOINT_PATH="checkpoints/proto9_checkpoint.pth",
+        CHECKPOINT_PATH="checkpoints/proto9_checkpoint_emotion3.pth",
         L1_LAMBDA=None,
         L2_REG=0.0,
         FINETUNE=False,
@@ -300,7 +302,8 @@ def visualise(unnorm_out, emotion_vectors):
     emotion_in, generated_emotion = emotion_vectors 
     emotion_vectors = (emotion_in[0], generated_emotion[0]) #quick fix
     
-    visualise_skeleton(unnorm_out[0], max_x, max_y, emotion_vectors,max_frames=FRAMES_GENERATE,save = False,save_path=None,prefix=f'{EPOCHS}_main_test',train_seed=train_seed,delta=False,destroy=False)
+    visualise_body(unnorm_out[0],max_x, max_y)
+    # visualise_skeleton(unnorm_out[0], max_x, max_y, emotion_vectors,max_frames=FRAMES_GENERATE,save = False,save_path=None,prefix=f'{EPOCHS}_main_test',train_seed=train_seed,delta=False,destroy=False)
 
 def visualise_batches():
     while not terminate_threads:  # Check the global termination flag

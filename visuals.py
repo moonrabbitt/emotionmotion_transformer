@@ -430,6 +430,12 @@ def visualise_body(all_frames, max_x, max_y, max_frames=500):
     # Run the Pyglet application
     pyglet.app.run()
 
+import threading
+import json
+
+# Define a function that wraps the visualise_body call
+def visualise_thread(all_frames, max_x, max_y):
+    visualise_body(all_frames, max_x, max_y)
 
 if __name__ == '__main__':
     
@@ -439,13 +445,25 @@ if __name__ == '__main__':
 
     # Accessing the data
     unnorm_out = loaded_data["unnorm_out"]
-    min_x = loaded_data["min_x"]
     max_x = loaded_data["max_x"]
-    min_y = loaded_data["min_y"]
     max_y = loaded_data["max_y"]
 
-    # Example usage
-    all_frames = unnorm_out # Your frames data
+    # Assume all_frames is divided into two parts for two threads
+    # This is a simple split, you may need to adjust it based on your data structure
+    half = len(unnorm_out) // 2
+    all_frames_1 = unnorm_out[:half]
+    all_frames_2 = unnorm_out[half:]
 
+    # Create two threads
+    thread1 = threading.Thread(target=visualise_thread, args=(all_frames_1, max_x, max_y))
+    thread2 = threading.Thread(target=visualise_thread, args=(all_frames_2, max_x, max_y))
 
-    visualise_body(all_frames, max_x, max_y)
+    # Start the threads
+    thread1.start()
+    thread2.start()
+
+    # Wait for both threads to finish
+    thread1.join()
+    thread2.join()
+
+    print("Visualisation completed")

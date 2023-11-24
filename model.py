@@ -280,6 +280,7 @@ class MotionModel(nn.Module):
         # help cature emotion in relation to motion
         # make sure frame corresponds to emotion
         pooled_emotion_features = self.attention_pooling(logits)  # B, hidden_dim
+        pooled_emotion_features = self.emotion_dropout(pooled_emotion_features) # B, hidden_dim
         emotion_logits = self.emotion_fc2(pooled_emotion_features)  # B, emotion_dim
         
         if USE_MDN:
@@ -1149,13 +1150,13 @@ if __name__ == "__main__":
     args = argparse.Namespace(
         BATCH_SIZE=8,
         BLOCK_SIZE=16,
-        DROPOUT=0.2,
+        DROPOUT=0.3,
         LEARNING_RATE=0.0001,
         EPOCHS=300000,
         FRAMES_GENERATE=300,
         TRAIN=False,
         EVAL_EVERY=1000,
-        CHECKPOINT_PATH="checkpoints/proto9_checkpoint_emotion3.pth",
+        CHECKPOINT_PATH="checkpoints/proto10_checkpoint.pth",
         L1_LAMBDA=None,
         L2_REG=0.0,
         FINETUNE=False,
