@@ -439,6 +439,15 @@ def visualise_thread(all_frames, max_x, max_y):
 
 if __name__ == '__main__':
     
+    import multiprocessing
+import json
+
+# Define the function that wraps the visualise_body call
+def visualise_process(all_frames, max_x, max_y):
+    visualise_body(all_frames, max_x, max_y)
+
+if __name__ == '__main__':
+    
     # Read data from a JSON file
     with open('data/data.json', 'r') as file:
         loaded_data = json.load(file)
@@ -448,22 +457,23 @@ if __name__ == '__main__':
     max_x = loaded_data["max_x"]
     max_y = loaded_data["max_y"]
 
-    # Assume all_frames is divided into two parts for two threads
-    # This is a simple split, you may need to adjust it based on your data structure
-    half = len(unnorm_out) // 2
-    all_frames_1 = unnorm_out[:half]
-    all_frames_2 = unnorm_out[half:]
+    # Split all_frames into parts for multiple processes
+    # This is a simple split, adjust based on your data structure
+    num_processes = multiprocessing.cpu_count()
+    chunk_size = len(unnorm_out) // num_processes
+    all_frames_chunks = [unnorm_out[i:i + chunk_size] for i in range(0, len(unnorm_out), chunk_size)]
 
-    # Create two threads
-    thread1 = threading.Thread(target=visualise_thread, args=(all_frames_1, max_x, max_y))
-    thread2 = threading.Thread(target=visualise_thread, args=(all_frames_2, max_x, max_y))
+    # Create a list to hold the processes
+    processes = []
 
-    # Start the threads
-    thread1.start()
-    thread2.start()
+    # Create and start processes
+    for chunk in all_frames_chunks:
+        p = multiprocessing.Process(target=visualise_process, args=(chunk, max_x, max_y))
+        processes.append(p)
+        p.start()
 
-    # Wait for both threads to finish
-    thread1.join()
-    thread2.join()
+    # Wait for all processes to finish
+    for p in processes:
+        p.join()
 
     print("Visualisation completed")

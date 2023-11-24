@@ -1,4 +1,4 @@
-import threading
+import multiprocessing
 import queue
 import time
 import keyboard
@@ -285,15 +285,17 @@ def generate_new_batch(last_frame=None):
     # Generate the new frames
     generated_keypoints, generated_emotion = m.generate(new_input, emotion_in, FRAMES_GENERATE)
     
-    emotion_vectors = (emotion_in, generated_emotion)
-    return unnormalise_list_2D(generated_keypoints, max_x, min_x, max_y, min_y, max_x, min_x, max_y, min_y), emotion_vectors
+    detached_keypoints = generated_keypoints.detach().cpu()
+    detached_emotion = generated_emotion.detach().cpu()
+    
+    emotion_vectors = (emotion_in, detached_emotion)
+    return unnormalise_list_2D(detached_keypoints, max_x, min_x, max_y, min_y, max_x, min_x, max_y, min_y), emotion_vectors
 
-def generate_batches_periodically(period=2, last_frame=None):
-    # initialise with last_frame = None
-    while not terminate_threads:  
+def generate_batches_periodically(queue, period=2, last_frame=None):
+    while True:
         time.sleep(period)
         unnorm_out, emotion_vectors = generate_new_batch(last_frame)
-        viz_queue.put((unnorm_out, emotion_vectors))  
+        queue.put((unnorm_out, emotion_vectors))  
         last_frame = unnorm_out
         
 
@@ -305,33 +307,36 @@ def visualise(unnorm_out, emotion_vectors):
     visualise_body(unnorm_out[0],max_x, max_y)
     # visualise_skeleton(unnorm_out[0], max_x, max_y, emotion_vectors,max_frames=FRAMES_GENERATE,save = False,save_path=None,prefix=f'{EPOCHS}_main_test',train_seed=train_seed,delta=False,destroy=False)
 
-def visualise_batches():
-    while not terminate_threads:  # Check the global termination flag
-        batch = viz_queue.get()  # Get the tuple from the queue
-        if batch is None:  # Check if the thread should terminate
+def visualise_process(queue):
+    while True:
+        batch = queue.get()  # Get the tuple from the queue
+        if batch is None:  # Check if the process should terminate
             break
         unnorm_out, emotion_vectors = batch  # Unpack the tuple
         visualise(unnorm_out, emotion_vectors)
 
-# Start the threads
-visualisation_thread = threading.Thread(target=visualise_batches, daemon=True)
-generation_thread = threading.Thread(target=generate_batches_periodically, args=(10,), daemon=True)
 
-visualisation_thread.start()
-generation_thread.start()
+if __name__ == '__main__':
+    # Process communication queue
+    viz_queue = multiprocessing.Queue()
 
+    # Start the processes
+    visualisation_process = multiprocessing.Process(target=visualise_process, args=(viz_queue,))
+    generation_process = multiprocessing.Process(target=generate_batches_periodically, args=(viz_queue, 10))
 
-# Process chat messages
-while chat.is_alive():
-    if keyboard.is_pressed('esc'):  # Check if ESC key is pressed
-        terminate_threads = True
-        viz_queue.put(None)  # Put a None in the queue to signal the visualisation thread to terminate
-        break  # Exit the main loop
-    for c in chat.get().sync_items():
-        process_chat_message(c)
+    visualisation_process.start()
+    generation_process.start()
 
-cv2.destroyAllWindows()
+    # Process chat messages
+    while chat.is_alive():
+        if keyboard.is_pressed('esc'):  # Check if ESC key is pressed
+            viz_queue.put(None)  # Put a None in the queue to signal the visualisation process to terminate
+            break  # Exit the main loop
+        for c in chat.get().sync_items():
+            process_chat_message(c)
 
-# Wait for threads to finish if needed
-visualisation_thread.join()
-generation_thread.join()
+    cv2.destroyAllWindows()
+
+    # Wait for processes to finish
+    visualisation_process.join()
+    generation_process.join()
