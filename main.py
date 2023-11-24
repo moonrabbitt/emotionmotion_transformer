@@ -296,8 +296,9 @@ def generate_batches_periodically(queue, period=2, last_frame=None):
     while True:
         time.sleep(period)
         unnorm_out, emotion_vectors = generate_new_batch(last_frame)
-        queue.put((unnorm_out, emotion_vectors))  
-        last_frame = unnorm_out
+        for frame in unnorm_out:
+            queue.put((frame, emotion_vectors))
+        last_frame = unnorm_out[-1]
         
 
 def visualise(unnorm_out, emotion_vectors ,window):
@@ -316,35 +317,63 @@ def visualise_process(queue,window):
         unnorm_out, emotion_vectors = batch  # Unpack the tuple
         visualise(unnorm_out, emotion_vectors,window)
 
+def process_chat_messages():
+    while chat.is_alive():
+        for c in chat.get().sync_items():
+            # Process each chat message
+            print(f"{c.datetime} [{c.author.name}]- {c.message}")
+            result = pipe(c.message)
+            print(result)
+            # Update shared_data or perform other actions based on the chat message
 
+def update(dt):
+    # Function called at regular intervals by the pyglet clock
+    if not viz_queue.empty():
+        try:
+            # Get a frame from the queue and visualize it
+            unnorm_out, emotion_vectors = viz_queue.get_nowait()
+            visualise(unnorm_out, emotion_vectors, window)
+        else:
+        except queue.Empty:
+            pass
+
+    # Check for chat messages
+    process_chat_messages()
+
+    # Check for keyboard interrupt (e.g., ESC key to exit)
+    if keyboard.is_pressed('esc'):
+        pyglet.app.exit()
+        
 if __name__ == '__main__':
+    
+
     # Process communication queue
     viz_queue = multiprocessing.Queue()
     
-    # so multiple windows dont show up
-    manager = multiprocessing.Manager()
-    no_window = manager.Value('b', True)  # 'b' indicates a boolean type 
-    
-    
     # Start the processes
-    visualisation_process = multiprocessing.Process(target=visualise_process, args=(viz_queue,no_window))
     generation_process = multiprocessing.Process(target=generate_batches_periodically, args=(viz_queue, 10))
-
-    visualisation_process.start()
     generation_process.start()
 
-    # Process chat messages
-    while chat.is_alive():
-        if keyboard.is_pressed('esc'):  # Check if ESC key is pressed
-            viz_queue.put(None)  # Put a None in the queue to signal the visualisation process to terminate
-            break  # Exit the main loop
-        for c in chat.get().sync_items():
-            process_chat_message(c)
 
-    cv2.destroyAllWindows()
+    # Set up pyglet clock to call update function periodically
+    pyglet.clock.schedule_interval(update, 0.033)  # Adjust interval as needed
 
-    # Wait for processes to finish
-    visualisation_process.join()
-    generation_process.join()
+    # Required in global scope for pyglet----------------------------------------
     
+    # Create the Pyglet window
+    window = pyglet.window.Window(int(max_x) + 50, int(max_y) + 50)
+    
+    global start_time
+    start_time = time.time()
+    
+    global frame_index
+    frame_index = 0
+    
+    # Required in global scope ----------------------------------------
+
+    # Run pyglet app
+    pyglet.app.run()
+
+    # Clean up
+    generation_process.join()
     pyglet.app.exit()

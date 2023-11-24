@@ -72,19 +72,7 @@ def load_shader(shader_file):
 
     return shader
 
-def visualise_body(all_frames, max_x, max_y,no_window, max_frames=500):
-    global frame_index
-    frame_index = 0
-    
-    global start_time
-    start_time = time.time()
-
-    # Pyglet window initialization
-    if no_window.value == True:
-        
-        window = pyglet.window.Window(int(max_x) + 50, int(max_y) + 50)
-        no_window.value = False
-    
+def visualise_body(frame_data, max_x, max_y,window,start_time,frame_index):
     
     _vertex_source = """#version 330 core
     in vec2 position;
@@ -417,36 +405,13 @@ def visualise_body(all_frames, max_x, max_y,no_window, max_frames=500):
                                                         tex_coords=('f', tex.tex_coords))
         batch.draw()
     
-        if frame_index < len(all_frames):
-            draw_frame(all_frames[frame_index])
-
-    # Update function for animation
-    def update(dt):
-        global frame_index
-        frame_index += 1
-        # if frame_index >= len(all_frames):
-        #     pyglet.app.exit()
-
-    # Schedule update
-    pyglet.clock.schedule_interval(update, 0.15)
-
-    # Run the Pyglet application
-    pyglet.app.run()
-
-import multiprocessing
-import json
-
-# Define the function that wraps the visualise_body call
-def visualise_process(all_frames, max_x, max_y):
-    visualise_body(all_frames, max_x, max_y)
+        draw_frame(frame_data)
 
 
 
 if __name__ == '__main__':
+    import queue
 
-    manager = multiprocessing.Manager()
-    no_window = manager.Value('b', True)  # 'b' indicates a boolean type
-    
     # Read data from a JSON file
     with open('data/data.json', 'r') as file:
         loaded_data = json.load(file)
@@ -455,27 +420,34 @@ if __name__ == '__main__':
     unnorm_out = loaded_data["unnorm_out"]
     max_x = loaded_data["max_x"]
     max_y = loaded_data["max_y"]
-
-    # Split all_frames into parts for multiple processes
-    # This is a simple split, adjust based on your data structure
-    num_processes = 2
-    chunk_size = len(unnorm_out) // num_processes
-    all_frames_chunks = [unnorm_out[i:i + chunk_size] for i in range(0, len(unnorm_out), chunk_size)]
-
-    # Create a list to hold the processes
-    processes = []
     
+    window = pyglet.window.Window(int(max_x) + 50, int(max_y) + 50)
+    frame_queue = queue.Queue()  # Queue to hold individual frames
     
-    # Create and start processes
-    for chunk in all_frames_chunks:
-        p = multiprocessing.Process(target=visualise_process, args=(chunk, max_x, max_y))
-        processes.append(p)
-        p.start()
+    # Preload frames into the queue
+    for frame in unnorm_out:
+        frame_queue.put(frame)
 
-    # Wait for all processes to finish
-    for p in processes:
-        p.join()
+    def update(dt):
+        global frame_index
+        if not frame_queue.empty():
+            frame_data = frame_queue.get()  # Get the next frame from the queue
+            visualise_body(frame_data, max_x, max_y, window,start_time,frame_index)  # Visualize it
+            frame_index += 1
+        else:
+            pyglet.app.exit()
+    
+    pyglet.clock.schedule_interval(update, 0.15)  # Adjust interval as needed
+    
+    # Required in global scope ----------------------------------------
+    
+    start_time = time.time()
 
-    print("Visualisation completed")
+    global frame_index
+    frame_index = 0
+    
+    start_time = time.time()
+    
+    # Required in global scope ----------------------------------------
 
-    pyglet.app.exit()
+    pyglet.app.run()
