@@ -81,7 +81,7 @@ def visualise_body(all_frames, max_x, max_y, max_frames=500):
 
     # Pyglet window initialization
     window = pyglet.window.Window(int(max_x) + 50, int(max_y) + 50)
-    batch = pyglet.graphics.Batch()
+    
     
     _vertex_source = """#version 330 core
     in vec2 position;
@@ -391,6 +391,8 @@ def visualise_body(all_frames, max_x, max_y, max_frames=500):
     @window.event
     def on_draw():
         window.clear()
+        batch = pyglet.graphics.Batch()
+
         
         tex = pyglet.image.Texture.create(window.width, window.height, internalformat=GL_RGBA32F)
         tex.bind_image_texture(unit=program.uniforms['img_output'].location)
@@ -410,11 +412,8 @@ def visualise_body(all_frames, max_x, max_y, max_frames=500):
         vertex_list = shader_program.vertex_list_indexed(4, GL_TRIANGLES, indices, batch, group,
                                                         position=('f', vertex_positions),
                                                         tex_coords=('f', tex.tex_coords))
-
         batch.draw()
-            
-        
-        
+    
         if frame_index < len(all_frames):
             draw_frame(all_frames[frame_index])
 
@@ -433,8 +432,6 @@ def visualise_body(all_frames, max_x, max_y, max_frames=500):
 
 
 if __name__ == '__main__':
-    
-    
     
     # Read data from a JSON file
     with open('data/data.json', 'r') as file:
