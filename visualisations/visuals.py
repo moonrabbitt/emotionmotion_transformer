@@ -6,8 +6,12 @@ import json
 from pyglet.graphics.shader import Shader, ShaderProgram
 from pyglet.gl import *
 from pyglet.graphics import Group
+import os
 from pyglet.text import Label
 
+# Set root directory
+root_dir = "C:\\Users\\avika\\OneDrive\\Documents\\UAL\\interactive_dance_thesis"
+os.chdir(root_dir)
 
 # https://github.com/pyglet/pyglet/blob/master/examples/opengl/opengl_shader.py
 class RenderGroup(Group):
@@ -138,8 +142,9 @@ def visualise_body(frame_data, emotion_vectors, max_x, max_y,window,start_time,f
     vert_shader = Shader(_vertex_source, 'vertex')
     frag_shader = Shader(_fragment_source, 'fragment')
     shader_program = ShaderProgram(vert_shader, frag_shader)
+    overlay_shader_program = ShaderProgram(vert_shader,frag_shader)
     program = pyglet.graphics.shader.ComputeShaderProgram(_compute_source)
-    
+    overlay_program =pyglet.graphics.shader.ComputeShaderProgram(_glitch_fragment_shader_source)
     
 
             
@@ -388,8 +393,9 @@ def visualise_body(frame_data, emotion_vectors, max_x, max_y,window,start_time,f
     @window.event
     def on_draw():
         window.clear()
-        batch = pyglet.graphics.Batch()
+        background = pyglet.graphics.Batch()
 
+        # Background-----------------------------------------------------------------------------------------------
         
         tex = pyglet.image.Texture.create(window.width, window.height, internalformat=GL_RGBA32F)
         tex.bind_image_texture(unit=program.uniforms['img_output'].location)
@@ -406,10 +412,45 @@ def visualise_body(frame_data, emotion_vectors, max_x, max_y,window,start_time,f
         vertex_positions = create_quad(0, 0, tex)
 
         # count, mode, indices, batch, group, *data
-        vertex_list = shader_program.vertex_list_indexed(4, GL_TRIANGLES, indices, batch, group,
+        vertex_list = shader_program.vertex_list_indexed(4, GL_TRIANGLES, indices, background, group,
                                                         position=('f', vertex_positions),
                                                         tex_coords=('f', tex.tex_coords))
-        batch.draw()
+        
+        background.draw()
+        
+        
+        # Sprite -----------------------------------------------------------------------------------------------
+        
+        draw_frame(frame_data)
+        
+        
+        # -----------------------------------------------------------------------------------------------
+        
+        
+        # Overlay effects -----------------------------------------------------------------------------------------------
+        
+        foreground = pyglet.graphics.Batch()
+        
+        overlay_tex = pyglet.image.Texture.create(window.width, window.height, internalformat=GL_RGBA32F)
+        overlay_tex.bind_image_texture(unit=overlay_program.uniforms['img_output'].location)
+        
+        # overlay_program['time'] = current_time
+        
+        with overlay_program:
+            overlay_program.dispatch(overlay_tex.width, overlay_tex.height, 1, barrier=GL_ALL_BARRIER_BITS)
+        
+        overlay_group = RenderGroup(overlay_tex, overlay_shader_program)
+        indices = (0, 1, 2, 0, 2, 3)
+        vertex_positions = create_quad(0, 0, overlay_tex)
+        
+        overlay_vertex_list = overlay_shader_program.vertex_list_indexed(4, GL_TRIANGLES, indices, foreground, overlay_group,
+                                                        position=('f', vertex_positions),
+                                                        tex_coords=('f', overlay_tex.tex_coords))
+        
+        foreground.draw()
+        
+        
+        
         
         # Load the emotion vectors-------------------------------------------------------------------------------------------------------------------
         emotion_labels = ['Anger', 'Disgust', 'Fear', 'Happiness', 'Neutral', 'Sad', 'Surprise']
@@ -447,8 +488,31 @@ def visualise_body(frame_data, emotion_vectors, max_x, max_y,window,start_time,f
         #---------------------------------------------------------------------------------------------------
         
     
-        draw_frame(frame_data)
+        
 
+# glitch effect
+
+def create_fullscreen_quad():
+    # Coordinates for a fullscreen quad (two triangles)
+    return [-1, -1, 1, -1, 1, 1, -1, 1]
+
+
+
+# Fragment Shader for Glitch Effect
+_glitch_fragment_shader_source = """
+#version 430 core
+layout (local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+
+layout(rgba32f) uniform image2D img_output;
+
+void main() {
+    ivec2 texel_coord = ivec2(gl_GlobalInvocationID.xy);
+
+    // Set the color of the whole screen to semi-transparent red
+    imageStore(img_output, texel_coord, vec4(1.0, 0.0, 0.0, 0.5));
+}
+
+"""
 
 
 if __name__ == '__main__':

@@ -1163,7 +1163,7 @@ if __name__ == "__main__":
         LEARNING_RATE=0.0001,
         EPOCHS=30000,
         FRAMES_GENERATE=300,
-        TRAIN=True,
+        TRAIN=False,
         EVAL_EVERY=1000,
         CHECKPOINT_PATH="checkpoints/proto10_checkpoint_scheduled.pth",
         L1_LAMBDA=None,
