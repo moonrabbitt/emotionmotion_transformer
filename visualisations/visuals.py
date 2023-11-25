@@ -434,6 +434,8 @@ def visualise_body(frame_data, emotion_vectors, max_x, max_y,window,start_time,f
         overlay_tex = pyglet.image.Texture.create(window.width, window.height, internalformat=GL_RGBA32F)
         overlay_tex.bind_image_texture(unit=overlay_program.uniforms['img_output'].location)
         
+        overlay_program['resolution'] = (window.width, window.height)
+        
         # overlay_program['time'] = current_time
         
         with overlay_program:
@@ -504,13 +506,33 @@ _glitch_fragment_shader_source = """
 layout (local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
 
 layout(rgba32f) uniform image2D img_output;
+uniform vec2 resolution;
 
 void main() {
     ivec2 texel_coord = ivec2(gl_GlobalInvocationID.xy);
+    vec2 st = vec2(texel_coord) / resolution;
 
-    // Set the color of the whole screen to semi-transparent red
-    imageStore(img_output, texel_coord, vec4(1.0, 0.0, 0.0, 0.5));
+    // Define the center and size of the square
+    vec2 center = vec2(0.5, 0.5); // Center of the screen
+    float size = 0.2; // Size of the square (20% of the screen's smaller dimension)
+
+    // Calculate the bounds of the square
+    float halfSize = size * 0.5;
+    vec2 lowerLeft = center - halfSize;
+    vec2 upperRight = center + halfSize;
+
+    // Check if the current pixel is inside the square
+    if (st.x >= lowerLeft.x && st.x <= upperRight.x &&
+        st.y >= lowerLeft.y && st.y <= upperRight.y) {
+        // Inside the square: semi-transparent red
+        imageStore(img_output, texel_coord, vec4(1.0, 0.0, 0.0, 0.5));
+    } else {
+        // Outside the square: keep the existing pixel color
+        vec4 currentColor = imageLoad(img_output, texel_coord);
+        imageStore(img_output, texel_coord, currentColor);
+    }
 }
+
 
 """
 
