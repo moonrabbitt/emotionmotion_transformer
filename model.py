@@ -230,7 +230,7 @@ class MotionModel(nn.Module):
         self.mdn = mdn.MDN((output_dim+emotion_dim),(output_dim), num_gaussians=5) 
         # emotions
         self.emotion_fc1 = nn.Linear(emotion_dim, hidden_dim, bias=False,device=device)
-        self.emotion_dropout = nn.Dropout(0.3)
+        self.emotion_dropout = nn.Dropout(0.4)
         self.emotion_fc2 = nn.Sequential(
             nn.Linear(output_dim, emotion_dim, bias=True),  #The bias allows the layer to shift the output independently of the input.
             nn.LeakyReLU()).to(device)
@@ -279,8 +279,9 @@ class MotionModel(nn.Module):
         # choosing x because x should represent both keypoints and emotions for the relationship to be captured
         # help cature emotion in relation to motion
         # make sure frame corresponds to emotion
-        pooled_emotion_features = self.attention_pooling(logits)  # B, hidden_dim
-        pooled_emotion_features = self.emotion_dropout(pooled_emotion_features) # B, hidden_dim
+        pooled_emotion_features = self.emotion_dropout(logits) # B, hidden_dim
+        pooled_emotion_features = self.attention_pooling(pooled_emotion_features)  # B, hidden_dim
+        
         emotion_logits = self.emotion_fc2(pooled_emotion_features)  # B, emotion_dim
         
         if USE_MDN:
@@ -300,7 +301,7 @@ class MotionModel(nn.Module):
             if L1_LAMBDA is None:
            
                 if USE_MDN:
-                    loss = (F.mse_loss(logits, targets) , (F.mse_loss(emotion_logits, emotions))*10 , mdn.mdn_loss(pi, sigma, mu, targets))
+                    loss = (F.mse_loss(logits, targets) , (F.mse_loss(emotion_logits, emotions))*2 , mdn.mdn_loss(pi, sigma, mu, targets))
                    
                 
                 else:
@@ -915,7 +916,7 @@ def main(args = None):
     #loss evaluated at every EVAL EVERY, so 2*EVAL_EVERY is scheduler's actual patience
     # train
     
-    def schedule_mdn_weight(start_after, epoch, start_weight, end_weight, ramp_epochs):
+    def schedule_weight(start_after, epoch, start_weight, end_weight, ramp_epochs):
         # Check if the ramping process has not started yet
         if epoch < start_after:
             return start_weight
@@ -946,10 +947,12 @@ def main(args = None):
     START_WEIGHT = 0.1 # Initial weight of MDN loss
     END_WEIGHT = 1 # Final weight of MDN loss
     RAMP_EPOCHS = 100000 # Number of epochs over which to increase weight
-    START_AFTER  = 60000 # Number of epochs to wait before starting to increase weight
+    START_AFTER_MDN  = 70000 # Number of epochs to wait before starting to increase weight
+    START_AFTER_EMOTION = 50000
     
     
-    notes += f"""\nMDN weight schedule: \nStart weight: {START_WEIGHT} \nEnd weight: {END_WEIGHT} \nRamp epochs: {RAMP_EPOCHS} \nStart after: {START_AFTER}"""
+    notes += f"""\nMDN weight schedule: \nStart weight: {START_WEIGHT} \nEnd weight: {END_WEIGHT} \nRamp epochs: {RAMP_EPOCHS} \nStart after: {START_AFTER_MDN}"""
+    notes += f"""\nEmotion weight schedule: \nStart weight: {START_WEIGHT} \nEnd weight: {END_WEIGHT} \nRamp epochs: {RAMP_EPOCHS} \nStart after: {START_AFTER_EMOTION}"""
 
 
     if TRAIN or FINETUNE:
@@ -970,12 +973,13 @@ def main(args = None):
           
             # evaluate loss
             if USE_MDN:
-                mdn_weight = schedule_mdn_weight(START_AFTER,epoch, START_WEIGHT, END_WEIGHT, RAMP_EPOCHS)
+                mdn_weight = schedule_weight(START_AFTER_MDN,epoch, START_WEIGHT, END_WEIGHT, RAMP_EPOCHS)
+                emotion_weight = schedule_weight(START_AFTER_EMOTION,epoch, START_WEIGHT, END_WEIGHT, RAMP_EPOCHS)
                 # mdn_weight = schedule_mdn_weight_exp(START_AFTER,epoch, START_WEIGHT, END_WEIGHT, RAMP_EPOCHS)
                 pi, sigma, mu, logits, emotion_logits, loss, latent_vectors = m(xb, yb, eb)
                 mse_logits_loss, mse_emotion_loss, mdn_loss = loss
                 # total_loss = mse_logits_loss + mse_emotion_loss + mdn_loss
-                total_loss = mse_logits_loss + mse_emotion_loss + (mdn_weight * mdn_loss)
+                total_loss = mse_logits_loss + (mse_emotion_loss * emotion_weight) + (mdn_weight * mdn_loss)
             else:
                 logits,emotion_logits,loss,latent_vectors = m(xb,yb,eb)
                 mse_logits_loss, mse_emotion_loss = loss
@@ -995,14 +999,19 @@ def main(args = None):
             if epoch % EVAL_EVERY == 0:
                 losses = estimate_loss()
                 scheduler.step(losses['val'])
-                print(f"\nTrain loss: {losses['train']:.6f} val loss: {losses['val']:.6f}")
+                print(f"\nTrain loss: {losses['train']:.6f} val loss: {losses['val']:.6f} --> KeyPoints Loss: {mse_logits_loss:.6f} Emotion Loss: {mse_emotion_loss:.6f} MDN Loss: {mdn_loss:.6f}")
+                print(f"MDN weight: {mdn_weight:.6f} Emotion weight: {emotion_weight:.6f}")
+         
                 
-                notes += f"""\nEPOCH:{epoch} \nTrain loss: {losses['train']:.6f} val loss: {losses['val']:.6f}"""
+                notes += f"\nTrain loss: {losses['train']:.6f} val loss: {losses['val']:.6f} --> KeyPoints Loss: {mse_logits_loss:.6f} Emotion Loss: {mse_emotion_loss:.6f} MDN Loss: {mdn_loss:.6f}"
+                notes += f"\nMDN weight: {mdn_weight:.6f} Emotion weight: {emotion_weight:.6f}"
+                
                 
                 
                 # Log the losses
                 writer.add_scalar('Loss/Keypoints', mse_logits_loss.item(), epoch)
                 writer.add_scalar('Loss/Emotion', mse_emotion_loss.item(), epoch)
+                writer.add_scalar('Loss/Emotion_Weight', emotion_weight, epoch)
                 if USE_MDN:
                     writer.add_scalar('Loss/MDN', mdn_loss.item(), epoch)
                     writer.add_scalar('Loss/MDN_Weight', mdn_weight, epoch)
@@ -1152,11 +1161,11 @@ if __name__ == "__main__":
         BLOCK_SIZE=16,
         DROPOUT=0.2,
         LEARNING_RATE=0.0001,
-        EPOCHS=300000,
+        EPOCHS=30000,
         FRAMES_GENERATE=300,
-        TRAIN=False,
+        TRAIN=True,
         EVAL_EVERY=1000,
-        CHECKPOINT_PATH="checkpoints/proto10_checkpoint.pth",
+        CHECKPOINT_PATH="checkpoints/proto10_checkpoint_scheduled.pth",
         L1_LAMBDA=None,
         L2_REG=0.0,
         FINETUNE=False,
@@ -1164,12 +1173,16 @@ if __name__ == "__main__":
         FINE_TUNING_EPOCHS=100000,
         PENALTY=False,
         LATENT_VIS_EVERY=1000,
-        USE_MDN = False,
-        PATIENCE= 35, #multiple of EVAL_EVERY * 10 - no early stopping if patience =0
+        USE_MDN = True,
+        PATIENCE= 3, #multiple of EVAL_EVERY * 10 - no early stopping if patience =0
         DATASET = "all",
         
         # NOTES---------------------------------
-        notes = f"""Proto9- # adding more dance data to help give model more diversity, hopefully it'll be less stuck
+        notes = f"""Proto10- # adding more dance data to help give model more diversity, hopefully it'll be less stuck
+        Emotion loss * 2
+        
+        switched dropout and attention pooling
+        
         
         Define  MDN loss scheduling parameters - 
          # Define  MDN loss scheduling parameters
