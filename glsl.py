@@ -104,6 +104,8 @@ float fbm ( in vec2 _st) {
     return v;
 }
 
+
+
 void main() {
     ivec2 texel_coord = ivec2(gl_GlobalInvocationID.xy);
 
@@ -112,24 +114,29 @@ void main() {
     vec2 q;
     q.x = fbm(st + 0.00 * time);
     q.y = fbm(st + vec2(1.0));
+    
+    vec2 p1 = vec2(fbm(st + q + vec2(1.7,9.2) + 0.15 * time));
+    vec2 p2 = vec2(fbm(st + q + vec2(8.3,2.8) + 0.126 * time));
 
     vec2 r;
-    r.x = fbm(st + 1.0 * q + vec2(1.7, 9.2) + 0.15 * time);
-    r.y = fbm(st + 1.0 * q + vec2(8.3, 2.8) + 0.126 * time);
+    r.x = fbm(p1 + fbm(p1 + fbm(p1)));
+    r.y = fbm(p2 + fbm(p2 + fbm(p2)));
 
     float f = fbm(st + r);
     vec3 baseColor = vec3(0.0, 0.0, 0.0); // Black
-    vec3 color = mix(baseColor, // Black
+    vec3 color = mix(vec3(0.101961,0.619608,0.666667), // Black
                 vec3(0.666667,0.666667,0.498039),
                 clamp((f*f)*4.0,0.0,1.0));
                 
     color = mix(color,
-                vec3(0.190,0.045,0.042),
+                vec3(0,0,0.164706),
                 clamp(length(q),0.0,1.0));
                 
     color = mix(color,
                 vec3(0.666667,1,1),
                 clamp(length(r.x),0.0,1.0));
+    
+    color = (f*f*f + .6*f*f + .5*f) * color;
 
     imageStore(img_output, texel_coord, vec4(color, 1.0));
 }
@@ -143,7 +150,7 @@ shader_program = ShaderProgram(vert_shader, frag_shader)
 compute_program = pyglet.graphics.shader.ComputeShaderProgram(_compute_source)
 
 # Pyglet window setup
-window = pyglet.window.Window(width=800, height=600)
+window = pyglet.window.Window(width=1200, height=1800)
 
 @window.event
 def on_draw():
