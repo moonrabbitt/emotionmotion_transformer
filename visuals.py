@@ -6,6 +6,8 @@ import json
 from pyglet.graphics.shader import Shader, ShaderProgram
 from pyglet.gl import *
 from pyglet.graphics import Group
+from pyglet.text import Label
+
 
 # https://github.com/pyglet/pyglet/blob/master/examples/opengl/opengl_shader.py
 class RenderGroup(Group):
@@ -72,7 +74,11 @@ def load_shader(shader_file):
 
     return shader
 
-def visualise_body(frame_data, max_x, max_y,window,start_time,frame_index):
+def visualise_body(frame_data, emotion_vectors, max_x, max_y,window,start_time,frame_index):
+    
+    
+    # Load the shaders-------------------------------------------------------------------------------------------------------------------
+    
     
     _vertex_source = """#version 330 core
     in vec2 position;
@@ -404,6 +410,42 @@ def visualise_body(frame_data, max_x, max_y,window,start_time,frame_index):
                                                         position=('f', vertex_positions),
                                                         tex_coords=('f', tex.tex_coords))
         batch.draw()
+        
+        # Load the emotion vectors-------------------------------------------------------------------------------------------------------------------
+        emotion_labels = ['Anger', 'Disgust', 'Fear', 'Happiness', 'Neutral', 'Sad', 'Surprise']
+        
+        if emotion_vectors is not None:
+            
+            
+            emotion_in, generated_emotion = emotion_vectors
+            emotion_in = emotion_in[0].tolist()  # Assuming emotion_in is a tensor
+            emotion_out = generated_emotion[0].tolist()  # Assuming generated_emotion is a tensor
+
+            emotion_in_percentages = [
+                f"{int(e * 100)}% {emotion_labels[i]}"
+                for i, e in enumerate(emotion_in) if round(e * 100) > 0
+            ]
+
+            emotion_out_percentages = [
+                f"{int(e * 100)}% {emotion_labels[i]}"
+                for i, e in enumerate(emotion_out) if round(e * 100) > 0
+            ]
+
+            y0, dy = 30, 15  # Starting y position and line gap
+
+            # Draw emotion_in percentages
+            for i, line in enumerate(emotion_in_percentages):
+                y = window.height - y0 - i * dy
+                label = Label(line, x=10, y=y, font_size=12, color=(255, 255, 255, 255))
+                label.draw()
+
+            # Draw emotion_out percentages
+            for i, line in enumerate(emotion_out_percentages):
+                y = window.height - y0 - i * dy
+                label = Label(line, x=window.width - 120, y=y, font_size=12, color=(255, 255, 255, 255))
+                label.draw()
+        #---------------------------------------------------------------------------------------------------
+        
     
         draw_frame(frame_data)
 
@@ -432,7 +474,7 @@ if __name__ == '__main__':
         global frame_index
         if not frame_queue.empty():
             frame_data = frame_queue.get()  # Get the next frame from the queue
-            visualise_body(frame_data, max_x, max_y, window,start_time,frame_index)  # Visualize it
+            visualise_body(frame_data, None, max_x, max_y, window, start_time, frame_index)  # Visualize it
             frame_index += 1
         else:
             pyglet.app.exit()

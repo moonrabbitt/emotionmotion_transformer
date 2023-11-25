@@ -1175,7 +1175,7 @@ if __name__ == "__main__":
          # Define  MDN loss scheduling parameters
          linear rate increase
          
-         
+         added dropout to emotion linear layer so that model can't just rely on small noise patterns and has to rely on larger motions to predict emotion
             
         trying to adapt Pette et al 2019, addign latent visualisation and analysing latent space. Might be slow, maybe take this out when live.
         

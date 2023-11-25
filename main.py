@@ -307,7 +307,7 @@ def visualise(unnorm_out, emotion_vectors ,window):
     emotion_in, generated_emotion = emotion_vectors 
     emotion_vectors = (emotion_in[0], generated_emotion[0]) #quick fix
     
-    visualise_body(unnorm_out[0],max_x, max_y, window,frame_index,start_time)
+    visualise_body(unnorm_out[0], emotion_vectors, max_x, max_y, window,frame_index,start_time)
     # visualise_skeleton(unnorm_out[0], max_x, max_y, emotion_vectors,max_frames=FRAMES_GENERATE,save = False,save_path=None,prefix=f'{EPOCHS}_main_test',train_seed=train_seed,delta=False,destroy=False)
 
 def visualise_process(queue,window):
@@ -326,7 +326,7 @@ def update(dt):
             # Get a single frame from the queue and visualize it
             frame_data, emotion_vectors = viz_queue.get_nowait()
             # print('VISUALISING')
-            visualise_body(frame_data, max_x, max_y, window,start_time,frame_index)  # Visualize it
+            visualise_body(frame_data, emotion_vectors, max_x, max_y, window,start_time,frame_index)  # Visualize it
             frame_index += 1
             # print(frame_index)
             
