@@ -296,9 +296,10 @@ def generate_batches_periodically(queue, period=2, last_frame=None):
     while True:
         time.sleep(period)
         unnorm_out, emotion_vectors = generate_new_batch(last_frame)
-        for frame in unnorm_out:
+        print('GENERATED BATCH PUTTING IN QUEUE')
+        for frame in tqdm(unnorm_out[0]):
             queue.put((frame, emotion_vectors))
-        last_frame = unnorm_out[-1]
+        last_frame = unnorm_out
         
 
 def visualise(unnorm_out, emotion_vectors ,window):
@@ -306,7 +307,7 @@ def visualise(unnorm_out, emotion_vectors ,window):
     emotion_in, generated_emotion = emotion_vectors 
     emotion_vectors = (emotion_in[0], generated_emotion[0]) #quick fix
     
-    visualise_body(unnorm_out[0],max_x, max_y, window)
+    visualise_body(unnorm_out[0],max_x, max_y, window,frame_index,start_time)
     # visualise_skeleton(unnorm_out[0], max_x, max_y, emotion_vectors,max_frames=FRAMES_GENERATE,save = False,save_path=None,prefix=f'{EPOCHS}_main_test',train_seed=train_seed,delta=False,destroy=False)
 
 def visualise_process(queue,window):
@@ -317,35 +318,45 @@ def visualise_process(queue,window):
         unnorm_out, emotion_vectors = batch  # Unpack the tuple
         visualise(unnorm_out, emotion_vectors,window)
 
-def process_chat_messages():
-    while chat.is_alive():
-        for c in chat.get().sync_items():
-            # Process each chat message
-            print(f"{c.datetime} [{c.author.name}]- {c.message}")
-            result = pipe(c.message)
-            print(result)
-            # Update shared_data or perform other actions based on the chat message
-
 def update(dt):
+    global frame_index
     # Function called at regular intervals by the pyglet clock
     if not viz_queue.empty():
         try:
-            # Get a frame from the queue and visualize it
-            unnorm_out, emotion_vectors = viz_queue.get_nowait()
-            visualise(unnorm_out, emotion_vectors, window)
-        else:
+            # Get a single frame from the queue and visualize it
+            frame_data, emotion_vectors = viz_queue.get_nowait()
+            # print('VISUALISING')
+            visualise_body(frame_data, max_x, max_y, window,start_time,frame_index)  # Visualize it
+            frame_index += 1
+            # print(frame_index)
+            
         except queue.Empty:
             pass
 
-    # Check for chat messages
-    process_chat_messages()
 
     # Check for keyboard interrupt (e.g., ESC key to exit)
     if keyboard.is_pressed('esc'):
         pyglet.app.exit()
         
+# Function to process chat messages in a separate process
+def chat_process(terminate_event):
+    chat = pytchat.create(video_id="gCNeDWCI0vo")
+    while not terminate_event.is_set():
+        for c in chat.get().sync_items():
+            process_chat_message(c)  # Make sure this function uses shared_data appropriately
+            # Update viz_queue or other shared resources as needed
+        
 if __name__ == '__main__':
     
+    # Shared event to signal termination
+    terminate_event = multiprocessing.Event()
+    
+    # Create the Pyglet window
+    window = pyglet.window.Window(int(max_x) + 50, int(max_y) + 50)
+    print('WINDOW CREATED')
+    
+    # Set up pyglet clock to call visualisation's update function periodically
+    pyglet.clock.schedule_interval(update, 0.15)  # Adjust interval as needed
 
     # Process communication queue
     viz_queue = multiprocessing.Queue()
@@ -354,26 +365,32 @@ if __name__ == '__main__':
     generation_process = multiprocessing.Process(target=generate_batches_periodically, args=(viz_queue, 10))
     generation_process.start()
 
+    # Start chat processing process
+    chat_proc = multiprocessing.Process(target=chat_process, args=(terminate_event,))
+    chat_proc.start()
 
-    # Set up pyglet clock to call update function periodically
-    pyglet.clock.schedule_interval(update, 0.033)  # Adjust interval as needed
 
-    # Required in global scope for pyglet----------------------------------------
-    
-    # Create the Pyglet window
-    window = pyglet.window.Window(int(max_x) + 50, int(max_y) + 50)
-    
-    global start_time
-    start_time = time.time()
-    
-    global frame_index
-    frame_index = 0
-    
     # Required in global scope ----------------------------------------
 
+    global start_time
+    start_time = time.time()
+
+    global frame_index
+    frame_index = 0
+    # Main --------------------------------------------------------------
     # Run pyglet app
     pyglet.app.run()
 
     # Clean up
+    # Signal the chat process to terminate and wait for it to finish
+    terminate_event.set()
+    chat_proc.join()
+    generation_process.join()
+    pyglet.app.exit()
+
+    # Clean up
+    # Signal the chat process to terminate and wait for it to finish
+    terminate_event.set()
+    chat_proc.join()
     generation_process.join()
     pyglet.app.exit()
