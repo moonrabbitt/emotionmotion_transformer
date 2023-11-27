@@ -335,10 +335,14 @@ class MotionModel(nn.Module):
 
                 # CHANGE: Instead of random sampling, use the mean of the most probable component
                 # next_values = mdn.max_sample(pi, sigma, mu)
-                next_values = mdn.sample(pi, sigma, mu, variance)
+                # next_values = mdn.select_sample(pi, sigma, mu)
+        
+                # next_values = mdn.sample_dynamic_emotion(pi, sigma, mu, emotion_logits, k=1.0, emotion_weight=1.0)
+                next_values = mdn.sample_dynamic_emotion(pi, sigma, mu, emotion_logits, k=1.0, emotion_weight=1.0)
+                # next_values = mdn.sample(pi, sigma, mu, variance)
                 
                 # random sample - previous implementation
-                # next_values = mdn.sample(pi, sigma, mu)
+  
 
                 generated_sequence = torch.cat([generated_sequence, next_values], dim=1)
 
@@ -379,8 +383,13 @@ def estimate_loss():
 
 
 # test----------------------------------------------------
-def unnormalise_list_2D(data_tensor, max_x, min_x, max_y, min_y, max_dx, min_dx, max_dy, min_dy):
+def unnormalise_list_2D(data_tensor, max_x, min_x, max_y, min_y, max_dx, min_dx, max_dy, min_dy,scale = 1.5):
     all_frames = []
+    
+    max_x = max_x * scale
+    min_x = min_x / scale
+    max_y = max_y * scale
+    min_y = min_y / scale
     
     # Loop through each batch
     for batch_idx in range(data_tensor.size(0)):
@@ -395,8 +404,8 @@ def unnormalise_list_2D(data_tensor, max_x, min_x, max_y, min_y, max_dx, min_dx,
             for i in range(0, 50, 2):
                 x = frame_data[i]
                 y = frame_data[i+1]
-                unnormalized_x = (x + 1) / 2 * (max_x - min_x) + min_x
-                unnormalized_y = (y + 1) / 2 * (max_y - min_y) + min_y
+                unnormalized_x = (x + 1) / 2 * ((max_x) - min_x) + min_x
+                unnormalized_y = (y + 1) / 2 * ((max_y) - min_y) + min_y
                 unnormalized_data.extend([unnormalized_x.item(), unnormalized_y.item()])
             
             
@@ -947,8 +956,8 @@ def main(args = None):
     START_WEIGHT = 0.1 # Initial weight of MDN loss
     END_WEIGHT = 1 # Final weight of MDN loss
     RAMP_EPOCHS = 100000 # Number of epochs over which to increase weight
-    START_AFTER_MDN  = 70000 # Number of epochs to wait before starting to increase weight
-    START_AFTER_EMOTION = 50000
+    START_AFTER_MDN  = 150000 # Number of epochs to wait before starting to increase weight
+    START_AFTER_EMOTION = 70000
     
     
     notes += f"""\nMDN weight schedule: \nStart weight: {START_WEIGHT} \nEnd weight: {END_WEIGHT} \nRamp epochs: {RAMP_EPOCHS} \nStart after: {START_AFTER_MDN}"""
@@ -1110,25 +1119,6 @@ def main(args = None):
     # unnorm_out = unnormalise_list_2D(generated, max_x, min_x, max_y, min_y,max_dx, min_dx, max_dy, min_dy)
     
     
-    # # ====
-    # print(generated_keypoints)
-    
-    # output_file_path = 'output_file.txt'  # Replace with your desired file path
-
-    # generated_keypoints, generated_emotion = m.generate(xb, emotion_in, FRAMES_GENERATE)
-    # # print(generated_keypoints)
-
-    # # Check if the file exists. If not, create it.
-    # if not os.path.exists(output_file_path):
-    #     os.makedirs(os.path.dirname(output_file_path), exist_ok=True)
-
-    # # Write the output to the file
-    # with open(output_file_path, 'w') as file:
-    #     file.write(str(generated_keypoints))
-    #     file.write('\n')
-    #     file.write(str(generated_emotion))
-        
-    # # ====
         
     unnorm_out = unnormalise_list_2D(generated_keypoints, max_x, min_x, max_y, min_y,max_x, min_x, max_y, min_y)
     # unnorm_out = unnormalise_list_2D(xb, max_x, min_x, max_y, min_y,max_x, min_x, max_y, min_y)
@@ -1138,7 +1128,7 @@ def main(args = None):
         
         emotion_vectors = (emotion_in[i],generated_emotion[i])
         frame = int(random.randrange(len(batch))) #only feed 1 frame in for visualisation
-        visualise_skeleton(batch, max_x, max_y,emotion_vectors, max_frames=FRAMES_GENERATE,save = True,save_path=None,prefix=f'{EPOCHS}_mdnsample_sigma100',train_seed=train_seed,delta=False)
+        visualise_skeleton(batch, max_x, max_y,emotion_vectors, max_frames=FRAMES_GENERATE,save = True,save_path=None,prefix=f'{EPOCHS}_mdnsample_dyanmic_emotion_indv',train_seed=train_seed,delta=False)
         # visualise_skeleton(batch, max_x, max_y,emotion_vectors, max_frames=FRAMES_GENERATE,save = True,save_path=None,prefix=f'adam_{EPOCHS}_delta',train_seed=train_seed,delta=True)
 
 
@@ -1161,7 +1151,7 @@ if __name__ == "__main__":
         BLOCK_SIZE=16,
         DROPOUT=0.2,
         LEARNING_RATE=0.0001,
-        EPOCHS=30000,
+        EPOCHS=400000,
         FRAMES_GENERATE=300,
         TRAIN=False,
         EVAL_EVERY=1000,
@@ -1226,6 +1216,6 @@ if __name__ == "__main__":
     latent_space, train_seed = main(args)
     
     # If you want to save as a CSV file using Pandas
-    import pandas as pd
-    df = pd.DataFrame(latent_space)
-    df.to_csv(f'data/latent_space_{train_seed}.csv', index=False)
+    # import pandas as pd
+    # df = pd.DataFrame(latent_space)
+    # df.to_csv(f'data/latent_space_{train_seed}.csv', index=False)

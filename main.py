@@ -6,7 +6,7 @@ import queue
 from model import *
 import pytchat
 from data import *
-from visuals import visualise_body
+from visualisations.visuals import visualise_body
 import pyglet
 
 # Use a pipeline as a high-level helper
@@ -104,7 +104,7 @@ args = argparse.Namespace(
         FRAMES_GENERATE=300,
         TRAIN=False,
         EVAL_EVERY=1000,
-        CHECKPOINT_PATH="checkpoints/proto9_checkpoint_emotion3.pth",
+        CHECKPOINT_PATH="checkpoints/proto10_checkpoint_scheduled.pth",
         L1_LAMBDA=None,
         L2_REG=0.0,
         FINETUNE=False,
@@ -196,8 +196,13 @@ except TypeError:
     print(f"Model {train_seed} loaded from {CHECKPOINT_PATH} (epoch {epoch}, total loss: {loss:.6f})")
 
 # Functions
-def normalise_generated(unnorm_out, max_x, min_x, max_y, min_y, max_dx, min_dx, max_dy, min_dy): 
+def normalise_generated(unnorm_out, max_x, min_x, max_y, min_y, max_dx, min_dx, max_dy, min_dy,scale=1.5): 
     norm_out = []
+    
+    max_x = max_x * scale
+    min_x = min_x / scale
+    max_y = max_y * scale
+    min_y = min_y / scale
     
     for frame in unnorm_out:
         norm_frame = []
@@ -301,22 +306,7 @@ def generate_batches_periodically(queue, period=2, last_frame=None):
             queue.put((frame, emotion_vectors))
         last_frame = unnorm_out
         
-
-def visualise(unnorm_out, emotion_vectors ,window):
-    # visualize
-    emotion_in, generated_emotion = emotion_vectors 
-    emotion_vectors = (emotion_in[0], generated_emotion[0]) #quick fix
-    
-    visualise_body(unnorm_out[0], emotion_vectors, max_x, max_y, window,frame_index,start_time)
-    # visualise_skeleton(unnorm_out[0], max_x, max_y, emotion_vectors,max_frames=FRAMES_GENERATE,save = False,save_path=None,prefix=f'{EPOCHS}_main_test',train_seed=train_seed,delta=False,destroy=False)
-
-def visualise_process(queue,window):
-    while True:
-        batch = queue.get()  # Get the tuple from the queue
-        if batch is None:  # Check if the process should terminate
-            break
-        unnorm_out, emotion_vectors = batch  # Unpack the tuple
-        visualise(unnorm_out, emotion_vectors,window)
+# Function to update the visualisation
 
 def update(dt):
     global frame_index

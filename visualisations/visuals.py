@@ -155,7 +155,7 @@ def visualise_body(frame_data, emotion_vectors, max_x, max_y,window,start_time,f
                     'L-Elb', 'L-Wr', 'MidHip', 'R-Hip', 'R-Knee', 'R-Ank', 
                     'L-Hip', 'L-Knee', 'L-Ank', 'R-Eye', 'L-Eye', 'R-Ear', 
                     'L-Ear', 'L-BigToe', 'L-SmallToe', 'L-Heel', 'R-BigToe', 
-                    'R-SmallToe', 'R-Heel', 'R-Pupil' , 'L-Pupil'] #L-Pupil and R-Pupil are not in the original keypointsMapping
+                    'R-SmallToe', 'R-Heel', 'R-Pupil' , 'L-Pupil','Head'] #L-Pupil and R-Pupil are not in the original keypointsMapping
 
     # Define the limb connections using names
     limb_connections_names = [
@@ -184,7 +184,7 @@ def visualise_body(frame_data, emotion_vectors, max_x, max_y,window,start_time,f
         ("R-Ank", "R-SmallToe"),
         ("R-Ank", "R-Heel"),
         ("R-Sho", "L-Sho","L-Hip","R-Hip"),
-        ("Nose",),
+        ("Head",),
         ("L-BigToe","L-SmallToe"),
         ("R-BigToe","R-SmallToe"),
         ('L-Wr',),
@@ -202,8 +202,8 @@ def visualise_body(frame_data, emotion_vectors, max_x, max_y,window,start_time,f
         # print(connection)
         # print(len(connection))        
         if len(connection) == 1:
-            if connection == ('Nose',):
-                image_path = f'G:/Downloads/happy/Nose_NORM.png'
+            if connection == ('Head',):
+                image_path = f'G:/Downloads/happy/Head_NORM.png'
                 limb_image = pyglet.image.load(image_path)
                 limb_image.anchor_x = limb_image.width // 2
                 limb_image.anchor_y = limb_image.height//2
@@ -327,11 +327,13 @@ def visualise_body(frame_data, emotion_vectors, max_x, max_y,window,start_time,f
                 sprite.x, sprite.y = mid_sho_x , mid_sho_y 
             
             elif len(limb) == 1:
-                if limb == (0,): # Nose
+                if limb == (27,): #Head 
                     sprite.width = head_width
                     sprite.height = head_height
                     sprite.scale = 0.3
-                
+                    limb = (1,0) #neck,nose
+                    
+                 
                 elif limb == (15,): # L-Eye
                     sprite.width = eye_width
                     sprite.height = eye_height*2
@@ -366,8 +368,23 @@ def visualise_body(frame_data, emotion_vectors, max_x, max_y,window,start_time,f
                     sprite.height = hand_height
                     sprite.scale = 0.3
                     
+                  
+                if len(limb) > 1:
+                    # Find midpoint between neck and nose
+                    mid_x = (frame_data[limb[0] * 2] + frame_data[limb[1] * 2]) / 2
+                    mid_y = max_y - (frame_data[limb[0] * 2 + 1] + frame_data[limb[1] * 2 + 1]) / 2
+
+                    # Calculate the 1/4 position below the nose
+                    nose_y = max_y - frame_data[limb[1] * 2 + 1]
+                    quarter_below_nose = nose_y + (nose_y - mid_y) / 4
+
+                    # Adjust sprite position
+                    sprite.x = mid_x
+                    sprite.y = quarter_below_nose
+                else:
+                    sprite.x, sprite.y = frame_data[limb[0] * 2], max_y - frame_data[limb[0] * 2 + 1]
                 
-                sprite.x, sprite.y = frame_data[limb[0] * 2], max_y - frame_data[limb[0] * 2 + 1]
+                
                         
             else:
                 start_idx, end_idx = limb
@@ -429,26 +446,26 @@ def visualise_body(frame_data, emotion_vectors, max_x, max_y,window,start_time,f
         
         # Overlay effects -----------------------------------------------------------------------------------------------
         
-        foreground = pyglet.graphics.Batch()
+        # foreground = pyglet.graphics.Batch()
         
-        overlay_tex = pyglet.image.Texture.create(window.width, window.height, internalformat=GL_RGBA32F)
-        overlay_tex.bind_image_texture(unit=overlay_program.uniforms['img_output'].location)
+        # overlay_tex = pyglet.image.Texture.create(window.width, window.height, internalformat=GL_RGBA32F)
+        # overlay_tex.bind_image_texture(unit=overlay_program.uniforms['img_output'].location)
         
-        overlay_program['resolution'] = (window.width, window.height)
-        overlay_program['time'] = current_time
+        # overlay_program['resolution'] = (window.width, window.height)
+        # overlay_program['time'] = current_time
         
-        with overlay_program:
-            overlay_program.dispatch(overlay_tex.width, overlay_tex.height, 1, barrier=GL_ALL_BARRIER_BITS)
+        # with overlay_program:
+        #     overlay_program.dispatch(overlay_tex.width, overlay_tex.height, 1, barrier=GL_ALL_BARRIER_BITS)
         
-        overlay_group = RenderGroup(overlay_tex, overlay_shader_program)
-        indices = (0, 1, 2, 0, 2, 3)
-        vertex_positions = create_quad(0, 0, overlay_tex)
+        # overlay_group = RenderGroup(overlay_tex, overlay_shader_program)
+        # indices = (0, 1, 2, 0, 2, 3)
+        # vertex_positions = create_quad(0, 0, overlay_tex)
         
-        overlay_vertex_list = overlay_shader_program.vertex_list_indexed(4, GL_TRIANGLES, indices, foreground, overlay_group,
-                                                        position=('f', vertex_positions),
-                                                        tex_coords=('f', overlay_tex.tex_coords))
+        # overlay_vertex_list = overlay_shader_program.vertex_list_indexed(4, GL_TRIANGLES, indices, foreground, overlay_group,
+        #                                                 position=('f', vertex_positions),
+        #                                                 tex_coords=('f', overlay_tex.tex_coords))
         
-        foreground.draw()
+        # foreground.draw()
         
         
         
@@ -562,12 +579,13 @@ if __name__ == '__main__':
         global frame_index
         if not frame_queue.empty():
             frame_data = frame_queue.get()  # Get the next frame from the queue
+            frame_data = frame_data 
             visualise_body(frame_data, None, max_x, max_y, window, start_time, frame_index)  # Visualize it
             frame_index += 1
         else:
             pyglet.app.exit()
     
-    pyglet.clock.schedule_interval(update, 0.15)  # Adjust interval as needed
+    pyglet.clock.schedule_interval(update, 0.05)  # Adjust interval as needed
     
     # Required in global scope ----------------------------------------
     

@@ -172,17 +172,112 @@ def max_sample(pi, sigma, mu):
     next_values = selected_mu[:, -1, :]  # Use the mean of the selected component
     return next_values
 
-# def emotion_biased_sampling(pi, sigma, mu, emotion_idx, emotion_biases):
-#     # Adjust pi based on emotion biases
-#     pi_adjusted = adjust_mixing_coefficients(pi, emotion_idx, emotion_biases)
-    
-#     # Sample as usual (or with any additional logic you want to add)
-#     samples = random_sample(pi_adjusted, sigma, mu)
-#     return samples
+def select_sample(pi, sigma, mu, selected_gaussian_idx=4, variance_div=1000):
+    """
+    Samples from the specified Gaussian component of the mixture.
 
-# def adjust_mixing_coefficients(pi, emotion_idx, emotion_biases):
-#     # Adjust the mixing coefficients based on the emotion
-#     # emotion_biases is a dictionary mapping from emotion index to a bias vector
-#     bias = emotion_biases[emotion_idx]
-#     pi_adjusted = apply_bias_to_pi(pi, bias)
-#     return pi_adjusted
+    :param pi: Mixture component weights [B, T, G]
+    :param sigma: Standard deviations of mixture components [B, T, G, O]
+    :param mu: Means of mixture components [B, T, G, O]
+    :param selected_gaussian_idx: Index of the Gaussian component to sample from [B, T]
+    :param variance_div: Factor to divide the variance for controlling sample spread
+    :return: Sampled values from the specified Gaussian component of the MDN
+    """
+    # Select the specified Gaussian components
+    
+    # Convert selected_gaussian_idx to a tensor if it is not already
+    if not isinstance(selected_gaussian_idx, torch.Tensor):
+        B, T, _ = pi.shape  # Get the dimensions from the shape of pi
+        selected_gaussian_idx = torch.full((B, T), selected_gaussian_idx, dtype=torch.long, device=pi.device)
+
+    selected_mu = torch.gather(mu, 2, selected_gaussian_idx.unsqueeze(-1).unsqueeze(-1).expand(-1, -1, -1, mu.size(-1)))
+    selected_sigma = torch.gather(sigma, 2, selected_gaussian_idx.unsqueeze(-1).unsqueeze(-1).expand(-1, -1, -1, sigma.size(-1)))
+    selected_sigma = selected_sigma / variance_div
+
+    # Create the normal distribution and sample from it
+    normal_dist = Normal(selected_mu, selected_sigma)
+    next_values = normal_dist.sample()[:, -1, :]  # Sample from the selected Gaussian
+
+    return next_values
+
+def calculate_dynamic_emotion_scores(mu, sigma, emotion_logits, k, emotion_weight):
+    """
+    Calculate scores for each Gaussian component based on dynamic movement, noise, and emotion.
+
+    :param mu: Means of Gaussian components [B, T, G, O]
+    :param sigma: Standard deviations of Gaussian components [B, T, G, O]
+    :param emotion_logits: Emotion logits [B, Emotion_Categories]
+    :param k: Weight for the noise component
+    :param emotion_weight: Weight for the emotion component
+    :return: A tensor of scores [B, T, G]
+    """
+    # Calculate the Euclidean distance for the means
+    movement_score = torch.sqrt(torch.sum(mu**2, dim=3))
+
+    # Calculate noise penalty
+    noise_penalty = k * torch.sqrt(torch.sum(sigma**2, dim=3))
+
+    # Incorporate emotion
+    dominant_emotion = emotion_logits.max(dim=1).values  # [B]
+    emotion_score = dominant_emotion.unsqueeze(1).unsqueeze(2).expand_as(movement_score)  # [B, T, G]
+
+    # Calculate final score
+    scores = movement_score - noise_penalty + emotion_weight * emotion_score
+
+    return scores
+
+
+
+def sample_dynamic_emotion(pi, sigma, mu, emotion_logits, k=1.0, emotion_weight=1.0):
+    """
+    Sample from the MDN focusing on dynamic movement, less noise, and emotional relevance.
+
+    :param pi: Mixture component weights [B, T, G]
+    :param sigma: Standard deviations of mixture components [B, T, G, O]
+    :param mu: Means of mixture components [B, T, G, O]
+    :param emotion_logits: Emotion logits [B, T, Emotion_Categories]
+    :param k: Weight for the noise component in scoring
+    :param emotion_weight: Weight for the emotion component in scoring
+    :return: Sampled values from the MDN
+    """
+    # Calculate scores for each Gaussian component
+    scores = calculate_dynamic_emotion_scores(mu, sigma, emotion_logits, k, emotion_weight)
+
+    # Select the Gaussian component with the highest score
+    selected_gaussian_idx = torch.argmax(scores, dim=2)
+
+    # Sample from the selected Gaussian components
+    selected_samples = select_sample(pi, sigma, mu, selected_gaussian_idx)
+
+    return selected_samples
+
+def sample_dynamic_emotion_individual(pi, sigma, mu, emotion_logits, k=1.0, emotion_weight=1.0):
+    """
+    Sample from the MDN focusing on dynamic movement, less noise, and emotional relevance for each keypoint individually.
+
+    :param pi: Mixture component weights [B, T, G]
+    :param sigma: Standard deviations of mixture components [B, T, G, O]
+    :param mu: Means of mixture components [B, T, G, O]
+    :param emotion_logits: Emotion logits [B, T, Emotion_Categories]
+    :param k: Weight for the noise component in scoring
+    :param emotion_weight: Weight for the emotion component in scoring
+    :return: Sampled values from the MDN
+    """
+    scores = calculate_dynamic_emotion_scores(mu, sigma, emotion_logits, k, emotion_weight)
+
+    # Select the Gaussian component with the highest score for each keypoint
+    B, T, G, O = mu.shape
+    selected_gaussian_idx = torch.argmax(scores, dim=2)  # [B, T, G]
+
+    # Sample from the selected Gaussian components for each keypoint
+    next_values = torch.zeros_like(mu[:, :, 0, :])  # Initialize tensor to store sampled values [B, T, O]
+    for o in range(O):
+        idx_o = selected_gaussian_idx[:, :, o].unsqueeze(-1)  # Index for keypoint 'o'
+        selected_mu = torch.gather(mu[:, :, :, o], 2, idx_o).squeeze(2)  # [B, T]
+        selected_sigma = torch.gather(sigma[:, :, :, o], 2, idx_o).squeeze(2)
+        
+        # Create normal distribution and sample
+        normal_dist = Normal(selected_mu, selected_sigma)
+        next_values[:, :, o] = normal_dist.sample()
+
+    return next_values
