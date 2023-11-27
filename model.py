@@ -334,11 +334,11 @@ class MotionModel(nn.Module):
                 pi, sigma, mu, logits, emotion_logits, _, _ = self(inputs=cond_sequence, emotions=generated_emotions)
 
                 # CHANGE: Instead of random sampling, use the mean of the most probable component
-                # next_values = mdn.max_sample(pi, sigma, mu)
+                next_values = mdn.max_sample(pi, sigma, mu)
                 # next_values = mdn.select_sample(pi, sigma, mu)
         
                 # next_values = mdn.sample_dynamic_emotion(pi, sigma, mu, emotion_logits, k=1.0, emotion_weight=1.0)
-                next_values = mdn.sample_dynamic_emotion(pi, sigma, mu, emotion_logits, k=1.0, emotion_weight=1.0)
+                # next_values = mdn.sample_dynamic_emotion_individual(pi, sigma, mu, emotion_logits, k=1.0, emotion_weight=1.0)
                 # next_values = mdn.sample(pi, sigma, mu, variance)
                 
                 # random sample - previous implementation
@@ -954,14 +954,15 @@ def main(args = None):
     
     # Define  MDN loss scheduling parameters
     START_WEIGHT = 0.1 # Initial weight of MDN loss
-    END_WEIGHT = 1 # Final weight of MDN loss
+    MDN_END_WEIGHT = 0.1 # Final weight of MDN loss
+    EMOTION_END_WEIGHT = 1 # Final weight of emotion loss
     RAMP_EPOCHS = 100000 # Number of epochs over which to increase weight
     START_AFTER_MDN  = 150000 # Number of epochs to wait before starting to increase weight
     START_AFTER_EMOTION = 70000
     
     
-    notes += f"""\nMDN weight schedule: \nStart weight: {START_WEIGHT} \nEnd weight: {END_WEIGHT} \nRamp epochs: {RAMP_EPOCHS} \nStart after: {START_AFTER_MDN}"""
-    notes += f"""\nEmotion weight schedule: \nStart weight: {START_WEIGHT} \nEnd weight: {END_WEIGHT} \nRamp epochs: {RAMP_EPOCHS} \nStart after: {START_AFTER_EMOTION}"""
+    notes += f"""\nMDN weight schedule: \nStart weight: {START_WEIGHT} \nEnd weight: {MDN_END_WEIGHT} \nRamp epochs: {RAMP_EPOCHS} \nStart after: {START_AFTER_MDN}"""
+    notes += f"""\nEmotion weight schedule: \nStart weight: {START_WEIGHT} \nEnd weight: {MDN_END_WEIGHT} \nRamp epochs: {RAMP_EPOCHS} \nStart after: {START_AFTER_EMOTION}"""
 
 
     if TRAIN or FINETUNE:
@@ -982,8 +983,8 @@ def main(args = None):
           
             # evaluate loss
             if USE_MDN:
-                mdn_weight = schedule_weight(START_AFTER_MDN,epoch, START_WEIGHT, END_WEIGHT, RAMP_EPOCHS)
-                emotion_weight = schedule_weight(START_AFTER_EMOTION,epoch, START_WEIGHT, END_WEIGHT, RAMP_EPOCHS)
+                mdn_weight = schedule_weight(START_AFTER_MDN,epoch, START_WEIGHT, MDN_END_WEIGHT, RAMP_EPOCHS)
+                emotion_weight = schedule_weight(START_AFTER_EMOTION,epoch, START_WEIGHT, EMOTION_END_WEIGHT, RAMP_EPOCHS)
                 # mdn_weight = schedule_mdn_weight_exp(START_AFTER,epoch, START_WEIGHT, END_WEIGHT, RAMP_EPOCHS)
                 pi, sigma, mu, logits, emotion_logits, loss, latent_vectors = m(xb, yb, eb)
                 mse_logits_loss, mse_emotion_loss, mdn_loss = loss
@@ -1128,7 +1129,7 @@ def main(args = None):
         
         emotion_vectors = (emotion_in[i],generated_emotion[i])
         frame = int(random.randrange(len(batch))) #only feed 1 frame in for visualisation
-        visualise_skeleton(batch, max_x, max_y,emotion_vectors, max_frames=FRAMES_GENERATE,save = True,save_path=None,prefix=f'{EPOCHS}_mdnsample_dyanmic_emotion_indv',train_seed=train_seed,delta=False)
+        visualise_skeleton(batch, max_x, max_y,emotion_vectors, max_frames=FRAMES_GENERATE,save = True,save_path=None,prefix=f'{EPOCHS}_mdnsample_dyanmic_emotion_indv_noneutral_red_noise',train_seed=train_seed,delta=False)
         # visualise_skeleton(batch, max_x, max_y,emotion_vectors, max_frames=FRAMES_GENERATE,save = True,save_path=None,prefix=f'adam_{EPOCHS}_delta',train_seed=train_seed,delta=True)
 
 
@@ -1164,7 +1165,7 @@ if __name__ == "__main__":
         PENALTY=False,
         LATENT_VIS_EVERY=1000,
         USE_MDN = True,
-        PATIENCE= 3, #multiple of EVAL_EVERY * 10 - no early stopping if patience =0
+        PATIENCE= 0, #multiple of EVAL_EVERY * 10 - no early stopping if patience =0
         DATASET = "all",
         
         # NOTES---------------------------------
