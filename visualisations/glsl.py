@@ -139,7 +139,7 @@ def select_shader(emotion):
             
             color = (f*f*f + .6*f*f + .5*f) * color;
 
-            imageStore(img_output, texel_coord, vec4(color, 1.0));
+            imageStore(img_output, texel_coord, vec4(color, 0.5));
         }
 
         """
@@ -172,11 +172,13 @@ def select_shader(emotion):
     
     return _compute_source
 
-def set_uniforms_for_shader(emotion,shader_program):
+def set_uniforms_for_shader(emotion,shader_program,args):
     if emotion == 'Sad':
+        start_time = args
         shader_program['time'] = (time.time() - start_time) 
     
     elif emotion == 'Happiness':
+        start_time = args
         current_time = (time.time()-start_time)*0.6
         shader_program['time'] = current_time
        
@@ -191,11 +193,11 @@ def create_program(emotion):
     
     return shader_program,compute_program
 
-def shader_on_draw(shader_program, compute_program , batch):
+def shader_on_draw(emotion,shader_program, compute_program , batch,window,args):
     tex = pyglet.image.Texture.create(window.width, window.height, internalformat=GL_RGBA32F)
     tex.bind_image_texture(unit=compute_program.uniforms['img_output'].location)
     
-    set_uniforms_for_shader(emotion,compute_program)
+    set_uniforms_for_shader(emotion,compute_program,args)
     
     with compute_program:
         compute_program.dispatch(tex.width, tex.height, 1, barrier=GL_ALL_BARRIER_BITS)
@@ -211,7 +213,7 @@ def shader_on_draw(shader_program, compute_program , batch):
 if __name__ == '__main__':
     
 
-    emotion = 'Happiness'
+    emotion = 'Sad'
     shader_program,compute_program = create_program(emotion)
     # Pyglet window setup
 
@@ -221,8 +223,11 @@ if __name__ == '__main__':
     def on_draw():
         window.clear()
         batch = pyglet.graphics.Batch()
-
-        shader_on_draw(shader_program, compute_program, batch)
+        
+        if emotion == 'Sad':
+            shader_on_draw(emotion,shader_program, compute_program , batch,window,start_time)
+        elif emotion == 'Happiness':
+            shader_on_draw(emotion,shader_program, compute_program , batch,window,start_time)
         
         batch.draw()
 

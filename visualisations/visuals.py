@@ -10,6 +10,7 @@ import os
 from pyglet.text import Label
 import random
 import glob
+import glsl
 
 # Set root directory
 root_dir = "C:\\Users\\avika\\OneDrive\\Documents\\UAL\\interactive_dance_thesis"
@@ -119,72 +120,22 @@ def visualise_body(frame_data, emotion_vectors, max_x, max_y,window,start_time,f
     emotion_in, generated_emotion = emotion_vectors
     emotion_in = emotion_in[0].tolist()  # Assuming emotion_in is a tensor
     emotion_out = generated_emotion[0].tolist()  # Assuming generated_emotion is a tensor
+    
+    emotion_labels = ['Anger', 'Disgust', 'Fear', 'Happiness', 'Neutral', 'Sad', 'Surprise']
 
+    # Get the index of the maximum value in emotion_out
+    max_emotion_index = emotion_out.index(max(emotion_out))
+
+    # Get the corresponding emotion label
+    dominant_emotion = emotion_labels[max_emotion_index]
     
     # Load the shaders-------------------------------------------------------------------------------------------------------------------
-    
-    
-    _vertex_source = """#version 330 core
-    in vec2 position;
-    in vec3 tex_coords;
-    out vec3 texture_coords;
-
-    uniform WindowBlock 
-    {                       // This UBO is defined on Window creation, and available
-        mat4 projection;    // in all Shaders. You can modify these matrixes with the
-        mat4 view;          // Window.view and Window.projection properties.
-    } window;  
-
-    void main()
-    {
-        gl_Position = window.projection * window.view * vec4(position, 1, 1);
-        texture_coords = tex_coords;
-    }
-"""
-
-    _fragment_source = """#version 330 core
-    in vec3 texture_coords;
-    out vec4 final_colors;
-
-    uniform sampler2D our_texture;
-
-    void main()
-    {
-        final_colors = texture(our_texture, texture_coords.xy);
-    }
-    """
-    
-    _compute_source = """#version 430 core
-    layout (local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
-
-    layout(rgba32f) uniform image2D img_output;
-    uniform float time;
-
-    void main() {
-    ivec2 texel_coord = ivec2(gl_GlobalInvocationID.xy);
-    
-    // Base color change on position
-    float base_red = float(texel_coord.x) / (gl_NumWorkGroups.x);
-    float base_green = float(texel_coord.y) / (gl_NumWorkGroups.y);
-
-    // Modulate color based on time
-    float time_red = (sin(time) + 1.0) / 2.0;  // Oscillates between 0 and 1
-    float time_green = (cos(time) + 1.0) / 2.0;  // Oscillates between 0 and 1
-
-    // Combine the position-based color with the time-based modulation
-    vec4 value = vec4(base_red * time_red, base_green * time_green, 0.0, 1.0);
-
-    imageStore(img_output, texel_coord, value);
-}
-    """
+    shader_program,program = glsl.create_program(dominant_emotion)
 
 
-    vert_shader = Shader(_vertex_source, 'vertex')
-    frag_shader = Shader(_fragment_source, 'fragment')
-    shader_program = ShaderProgram(vert_shader, frag_shader)
-    overlay_shader_program = ShaderProgram(vert_shader,frag_shader)
-    program = pyglet.graphics.shader.ComputeShaderProgram(_compute_source)
-    overlay_program =pyglet.graphics.shader.ComputeShaderProgram(_glitch_fragment_shader_source)
+
+    # overlay_shader_program = ShaderProgram(vert_shader,frag_shader)
+    # overlay_program =pyglet.graphics.shader.ComputeShaderProgram(_glitch_fragment_shader_source)
     
 
             
@@ -464,39 +415,29 @@ def visualise_body(frame_data, emotion_vectors, max_x, max_y,window,start_time,f
     @window.event
     def on_draw():
         window.clear()
-        background = pyglet.graphics.Batch()
+        background_batch = pyglet.graphics.Batch()
 
         # Background-----------------------------------------------------------------------------------------------
+        if dominant_emotion == 'Sad':
+            args = start_time
+            print(args)
         
-        tex = pyglet.image.Texture.create(window.width, window.height, internalformat=GL_RGBA32F)
-        tex.bind_image_texture(unit=program.uniforms['img_output'].location)
-        
-        current_time = (time.time()-start_time)*0.6
-        program['time'] = current_time
-        
-        with program:
-            program.dispatch(tex.width, tex.height, 1, barrier=GL_ALL_BARRIER_BITS)
-        
-        # tex = pyglet.resource.texture('data/leg.png')
-        group = RenderGroup(tex, shader_program)
-        indices = (0, 1, 2, 0, 2, 3)
-        vertex_positions = create_quad(0, 0, tex)
+        elif dominant_emotion == 'Happiness':
+            args = start_time
+        else:
+            args = None
 
-        # count, mode, indices, batch, group, *data
-        vertex_list = shader_program.vertex_list_indexed(4, GL_TRIANGLES, indices, background, group,
-                                                        position=('f', vertex_positions),
-                                                        tex_coords=('f', tex.tex_coords))
-        
-        background.draw()
+        glsl.shader_on_draw(dominant_emotion, shader_program, program, background_batch, window, args)
         
         
+
         # Sprite -----------------------------------------------------------------------------------------------
-        
+
         draw_frame(frame_data)
         
+        background_batch.draw()
         
         # -----------------------------------------------------------------------------------------------
-        
         
         # Overlay effects -----------------------------------------------------------------------------------------------
         
@@ -525,7 +466,6 @@ def visualise_body(frame_data, emotion_vectors, max_x, max_y,window,start_time,f
         
         
         # Load the emotion vectors-------------------------------------------------------------------------------------------------------------------
-        emotion_labels = ['Anger', 'Disgust', 'Fear', 'Happiness', 'Neutral', 'Sad', 'Surprise']
         
         if emotion_vectors is not None:
 
@@ -628,7 +568,7 @@ if __name__ == '__main__':
     # emotion_labels = ['Anger', 'Disgust', 'Fear', 'Happiness', 'Neutral', 'Sad', 'Surprise']
 
     # happy emotion vector for testing
-    emotion_vectors = (torch.tensor([[0.0, 0.0, 0.0, 1.0, 0.0, 0.0,0.0]]), torch.tensor([[0.0, 0.0, 0.0, 0.5, 0.0, 0.5,0.0]]))
+    emotion_vectors = (torch.tensor([[0.0, 0.0, 0.0, 1.0, 0.0, 0.0,0.0]]), torch.tensor([[0.0, 0.0, 0.0, 0.0, 0.0, 1.0,0.0]]))
     
     def update(dt):
         global frame_index
@@ -643,12 +583,12 @@ if __name__ == '__main__':
     pyglet.clock.schedule_interval(update, 0.05)  # Adjust interval as needed
     
     # Required in global scope ----------------------------------------
-    
-    start_time = time.time()
+
 
     global frame_index
     frame_index = 0
     
+    global start_time
     start_time = time.time()
     
     # Required in global scope ----------------------------------------
