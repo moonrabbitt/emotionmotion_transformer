@@ -81,7 +81,7 @@ def load_shader(shader_file):
     return shader
 
 
-def return_path(emotion_vector, connection):
+def return_properties(emotion_vector, connection):
     emotion_labels = ['Anger', 'Disgust', 'Fear', 'Happiness', 'Neutral', 'Sad', 'Surprise']
 
     # Ensure the emotion_vector is the same length as emotion_labels
@@ -97,9 +97,21 @@ def return_path(emotion_vector, connection):
     # Construct the file path
     file_path = f'D:\\Interactive Dance Thesis Tests\\visualisations\\{chosen_emotion}_NORM\\{connection}\\*.png'
     path = random.choice(glob.glob(file_path))
+    
+    scale = 1.0
+    if chosen_emotion == 'Happiness':
+        scale = 1.0
+    elif chosen_emotion == 'Sad':
+        scale = 1.5
+    else:
+        scale = 1.0    
+    
 
-    return path
+    return path, scale
 
+
+
+    
     
 
 def visualise_body(frame_data, emotion_vectors, max_x, max_y,window,start_time,frame_index):
@@ -226,34 +238,36 @@ def visualise_body(frame_data, emotion_vectors, max_x, max_y,window,start_time,f
     
     # Loading specific images for each limb connection
     limb_sprites = {}
+    offset = 5
+    _,scale = return_properties(emotion_out,('Head',))
     for connection in limb_connections_names:
         # print(connection)
         # print(len(connection))        
         if len(connection) == 1:
             if connection == ('Head',):
-                image_path = return_path(emotion_out,connection)
+                image_path,scale = return_properties(emotion_out,connection)
                 limb_image = pyglet.image.load(image_path)
                 limb_image.anchor_x = limb_image.width // 2
                 limb_image.anchor_y = limb_image.height//2
                 head_width = limb_image.width
                 head_height = limb_image.height
             elif connection == ('L-Hand',):
-                image_path = return_path(emotion_out,connection)
+                image_path,scale = return_properties(emotion_out,connection)
                 limb_image = pyglet.image.load(image_path)
                 limb_image.anchor_x = limb_image.width // 2
-                limb_image.anchor_y = limb_image.height
+                limb_image.anchor_y = limb_image.height + offset
                 hand_width = limb_image.width
                 hand_height = limb_image.height
             elif connection == ('R-Hand',):
-                image_path = return_path(emotion_out,connection)
+                image_path,scale = return_properties(emotion_out,connection)
                 limb_image = pyglet.image.load(image_path)
                 limb_image.anchor_x = limb_image.width // 2
-                limb_image.anchor_y = limb_image.height
+                limb_image.anchor_y = limb_image.height - offset
                 hand_width = limb_image.width
                 hand_height = limb_image.height
                 
             elif connection == ('L-Eye',):
-                image_path = return_path(emotion_out,connection)
+                image_path,scale = return_properties(emotion_out,connection)
                 limb_image = pyglet.image.load(image_path)
                 limb_image.anchor_x = 0
                 limb_image.anchor_y = limb_image.height//2
@@ -262,13 +276,13 @@ def visualise_body(frame_data, emotion_vectors, max_x, max_y,window,start_time,f
             
             elif connection == ('R-Pupil',):
                 # Load pupil images and set properties
-                image_path = return_path(emotion_out,connection)
+                image_path,scale = return_properties(emotion_out,connection)
                 limb_image = pyglet.image.load(image_path)
                 limb_image.anchor_x = 0
                 limb_image.anchor_y = limb_image.height//2
                 
             elif connection == ('R-Eye',):
-                image_path = return_path(emotion_out,connection)
+                image_path,scale = return_properties(emotion_out,connection)
                 limb_image = pyglet.image.load(image_path)
                 limb_image.anchor_x = limb_image.width 
                 limb_image.anchor_y = limb_image.height//2
@@ -276,7 +290,7 @@ def visualise_body(frame_data, emotion_vectors, max_x, max_y,window,start_time,f
                 eye_height = limb_image.height
             
             elif connection == ('L-Pupil',):
-                image_path = return_path(emotion_out,connection)
+                image_path,scale = return_properties(emotion_out,connection)
                 limb_image = pyglet.image.load(image_path)
                 limb_image.anchor_x = limb_image.width 
                 limb_image.anchor_y = limb_image.height//2
@@ -285,10 +299,10 @@ def visualise_body(frame_data, emotion_vectors, max_x, max_y,window,start_time,f
             
         elif len(connection) == 4:
             # Special case: multiple keypoints (e.g., four points)
-            image_path = return_path(emotion_out,connection)
+            image_path,scale = return_properties(emotion_out,connection)
             limb_image = pyglet.image.load(image_path)
-            limb_image.anchor_x = limb_image.width // 2
-            limb_image.anchor_y = limb_image.height
+            limb_image.anchor_x = limb_image.width // 2 
+            limb_image.anchor_y = limb_image.height - offset
             body_width = limb_image.width
             body_height = limb_image.height
             
@@ -297,10 +311,10 @@ def visualise_body(frame_data, emotion_vectors, max_x, max_y,window,start_time,f
         else:
             # Standard case: connection between two keypoints
             try:
-                image_path = return_path(emotion_out,connection)
+                image_path,scale = return_properties(emotion_out,connection)
                 limb_image = pyglet.image.load(image_path)
                 limb_image.anchor_x = limb_image.width // 2
-                limb_image.anchor_y = limb_image.height
+                limb_image.anchor_y = limb_image.height - offset
                 
                 limb_sprites[(keypointsMapping.index(connection[0]), keypointsMapping.index(connection[1]))] = pyglet.sprite.Sprite(limb_image)
            
@@ -333,7 +347,7 @@ def visualise_body(frame_data, emotion_vectors, max_x, max_y,window,start_time,f
       
                 # Calculate the midpoints for shoulders and hips
                 mid_sho_x = (frame_data[limb[0] * 2] + frame_data[limb[1] * 2]) / 2
-                mid_sho_y = max_y -(frame_data[limb[0] * 2 + 1] + frame_data[limb[1] * 2 + 1]) / 2
+                mid_sho_y = max_y -(frame_data[limb[0] * 2 + 1] + frame_data[limb[1] * 2 + 1]) / 2 
                 mid_hip_x = (frame_data[limb[2] * 2] + frame_data[limb[3] * 2]) / 2
                 mid_hip_y = max_y -(frame_data[limb[2] * 2 + 1] + frame_data[limb[3] * 2 + 1]) / 2
 
@@ -345,8 +359,8 @@ def visualise_body(frame_data, emotion_vectors, max_x, max_y,window,start_time,f
                 width =  width_hip   # Add some padding
                 # Set sprite properties
                 
-                sprite.scale_x = (width / sprite.width)*1.8
-                sprite.scale_y = (height / sprite.height)*1.2
+                sprite.scale_x = (width / sprite.width)*1.8 *scale
+                sprite.scale_y = (height / sprite.height)*1.2 *scale
                 
                 sprite.rotation = math.atan2(mid_hip_y - mid_sho_y, mid_hip_x - mid_sho_x)
                 
@@ -359,25 +373,25 @@ def visualise_body(frame_data, emotion_vectors, max_x, max_y,window,start_time,f
                 if limb == (keypointsMapping.index('Head'),): #Head 
                     sprite.width = head_width
                     sprite.height = head_height
-                    sprite.scale = 0.3
+                    sprite.scale = 0.3*scale
                     limb = (1,0) #neck,nose
                     
                  
                 elif limb == (keypointsMapping.index('L-Eye'),): # L-Eye
                     sprite.width = eye_width
                     sprite.height = eye_height*2
-                    sprite.scale = 0.02
+                    sprite.scale = 0.02 *scale
                     
                 elif limb == (keypointsMapping.index('R-Eye'),): # R-Eye
                     sprite.width = eye_width
                     sprite.height = eye_height*2
-                    sprite.scale = 0.02
+                    sprite.scale = 0.02*scale
                 
                 elif limb == (keypointsMapping.index('L-Pupil'),) : # L-Pupil
                     if not is_blinking:
                         sprite.width = eye_width
                         sprite.height = sprite.width
-                        sprite.scale = 0.01
+                        sprite.scale = 0.01*scale
                         limb = (15,)
                     else:
                         continue
@@ -386,7 +400,7 @@ def visualise_body(frame_data, emotion_vectors, max_x, max_y,window,start_time,f
                     if not is_blinking:
                         sprite.width = eye_width
                         sprite.height = sprite.width
-                        sprite.scale = 0.01
+                        sprite.scale = 0.01*scale
                         limb = (16,)
                     else:
                         continue
@@ -394,19 +408,19 @@ def visualise_body(frame_data, emotion_vectors, max_x, max_y,window,start_time,f
                 elif limb == (keypointsMapping.index('L-Hand'),): # L-Hand
                     sprite.width = hand_width
                     sprite.height = hand_height
-                    sprite.scale = 0.3
+                    sprite.scale = 0.3*scale
                     limb = (7,) # L-Wr
                     
                 elif limb == (keypointsMapping.index('R-Hand'),): # R-Hand
                     sprite.width = hand_width
                     sprite.height = hand_height
-                    sprite.scale = 0.3
+                    sprite.scale = 0.3*scale
                     limb = (4,) # R-Wr
                 
                 else: 
                     sprite.width = hand_width
                     sprite.height = hand_height
-                    sprite.scale = 0.3
+                    sprite.scale = 0.3*scale
                     
                   
                 if len(limb) > 1:
@@ -439,7 +453,7 @@ def visualise_body(frame_data, emotion_vectors, max_x, max_y,window,start_time,f
                 
                 sprite.rotation = math.degrees(angle)
                 
-                sprite.scale = (distance / sprite.height)*1.1
+                sprite.scale = (distance / sprite.height)*1.1 *scale
                 
                 sprite.x, sprite.y = start_x, start_y
             
@@ -610,9 +624,11 @@ if __name__ == '__main__':
     # Preload frames into the queue
     for frame in unnorm_out:
         frame_queue.put(frame)
+        
+    # emotion_labels = ['Anger', 'Disgust', 'Fear', 'Happiness', 'Neutral', 'Sad', 'Surprise']
 
     # happy emotion vector for testing
-    emotion_vectors = (torch.tensor([[0.0, 0.0, 0.0, 1.0, 0.0, 0.0,0.0]]), torch.tensor([[0.0, 0.0, 0.0, 1.0, 0.0, 0.0,0.0]]))
+    emotion_vectors = (torch.tensor([[0.0, 0.0, 0.0, 1.0, 0.0, 0.0,0.0]]), torch.tensor([[0.0, 0.0, 0.0, 0.5, 0.0, 0.5,0.0]]))
     
     def update(dt):
         global frame_index
