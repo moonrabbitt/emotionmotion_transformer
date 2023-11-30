@@ -419,7 +419,7 @@ def select_shader(emotion):
             f = mix(1., f, clamp((length(p-lpos/1.)-.15)/.025, 0., 1.));
             
             // eyelids
-            f = mix(f, 0., clamp((length(vec2(p.x, abs(p.y))+vec2(0., 1.3))-2.15)/.04, 0., 1.));
+           f = mix(f, 0., clamp((length(vec2(p.x, abs(p.y))+vec2(0., 1.3))-2.15)/.04, 0., 1.));
             
             return f;
         }
@@ -427,13 +427,13 @@ def select_shader(emotion):
         void main( void ) {
             ivec2 texel_coord = ivec2(gl_GlobalInvocationID.xy);
 
-            vec2 p = 3.* (vec2(texel_coord) - resolution / 2.0) / resolution.y;
+            vec2 p = 10.* (vec2(texel_coord) - resolution / 2.0) / resolution.y;
             
             // pupil contraction/expansion
             float t = 1.+.05*sHash11(1.5*time);
             
-
-            vec4 value = vec4( vec3(Eye(p, t, position-.5)), 1.0 );
+            vec2 position2 = vec2(sin(position.x),sin(position.y));
+            vec4 value = vec4( vec3(Eye(p, t, position2-.5)), 1.0 );
         
         imageStore(img_output, texel_coord, value);
 
@@ -632,9 +632,10 @@ def set_uniforms_for_shader(emotion,shader_program):
         
     elif emotion == 'Fear':
         shader_program['time'] = float(time.time() - start_time) 
-        shader_program['resolution'] = (float(window.width),float(window.height))
+        shader_program['resolution'] = (float(window.width),float(window.height*1.4))
         # shader_program['resolution'] = (2500.0,2500.0)
-        shader_program['position'] = (float(window._mouse_x),float(window._mouse_y))
+        shader_program['position'] = (window._mouse_x,window._mouse_y)
+        print(shader_program['position'])
         
     elif emotion == 'Anger':
         shader_program['resolution'] = (float(window.width),float(window.height))
