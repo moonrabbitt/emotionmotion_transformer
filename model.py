@@ -334,11 +334,11 @@ class MotionModel(nn.Module):
                 pi, sigma, mu, logits, emotion_logits, _, _ = self(inputs=cond_sequence, emotions=generated_emotions)
 
                 # CHANGE: Instead of random sampling, use the mean of the most probable component
-                next_values = mdn.max_sample(pi, sigma, mu)
+                # next_values = mdn.max_sample(pi, sigma, mu)
                 # next_values = mdn.select_sample(pi, sigma, mu)
         
                 # next_values = mdn.sample_dynamic_emotion(pi, sigma, mu, emotion_logits, k=1.0, emotion_weight=1.0)
-                # next_values = mdn.sample_dynamic_emotion_individual(pi, sigma, mu, emotion_logits, k=1.0, emotion_weight=1.0)
+                next_values = mdn.sample_dynamic_emotion_individual(pi, sigma, mu, emotion_logits, k=2.0, emotion_weight=1.0)
                 # next_values = mdn.sample(pi, sigma, mu, variance)
                 
                 # random sample - previous implementation
@@ -1156,7 +1156,7 @@ if __name__ == "__main__":
         FRAMES_GENERATE=300,
         TRAIN=False,
         EVAL_EVERY=1000,
-        CHECKPOINT_PATH="checkpoints/proto10_checkpoint_scheduled.pth",
+        CHECKPOINT_PATH="checkpoints/proto10_checkpoint.pth",
         L1_LAMBDA=None,
         L2_REG=0.0,
         FINETUNE=False,

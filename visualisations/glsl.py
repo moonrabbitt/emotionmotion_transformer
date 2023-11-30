@@ -25,40 +25,9 @@ def create_quad(x, y, texture):
     y2 = y + texture.height
     return x, y, x2, y, x2, y2, x, y2
 
-# Vertex Shader
-_vertex_source = """
-#version 330 core
-in vec2 position;
-in vec3 tex_coords;
-out vec3 texture_coords;
 
-uniform WindowBlock
-{
-    mat4 projection;
-    mat4 view;
-} window;
-
-void main()
-{
-    gl_Position = window.projection * window.view * vec4(position, 1, 1);
-    texture_coords = tex_coords;
-}
-"""
-
-# Fragment Shader
-_fragment_source = """
-#version 330 core
-in vec3 texture_coords;
-out vec4 final_colors;
-
-uniform sampler2D our_texture;
-
-void main()
-{
-    final_colors = texture(our_texture, texture_coords.xy);
-}
-"""
 def select_shader(emotion):
+
     if emotion == 'Sad':
         # Compute Shader
         _compute_source = """
@@ -143,32 +112,57 @@ def select_shader(emotion):
         }
 
         """
-        return _compute_source
+     
     
     elif emotion == 'Happiness':
         _compute_source = """#version 430 core
-    layout (local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+        layout (local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
 
-    layout(rgba32f) uniform image2D img_output;
-    uniform float time;
+        layout(rgba32f) uniform image2D img_output;
+        uniform float time;
 
-    void main() {
-    ivec2 texel_coord = ivec2(gl_GlobalInvocationID.xy);
-    
-    // Base color change on position
-    float base_red = float(texel_coord.x) / (gl_NumWorkGroups.x);
-    float base_green = float(texel_coord.y) / (gl_NumWorkGroups.y);
+        void main() {
+        ivec2 texel_coord = ivec2(gl_GlobalInvocationID.xy);
+        
+        // Base color change on position
+        float base_red = float(texel_coord.x) / (gl_NumWorkGroups.x);
+        float base_green = float(texel_coord.y) / (gl_NumWorkGroups.y);
 
-    // Modulate color based on time
-    float time_red = (sin(time) + 1.0) / 2.0;  // Oscillates between 0 and 1
-    float time_green = (cos(time) + 1.0) / 2.0;  // Oscillates between 0 and 1
+        // Modulate color based on time
+        float time_red = (sin(time) + 1.0) / 2.0;  // Oscillates between 0 and 1
+        float time_green = (cos(time) + 1.0) / 2.0;  // Oscillates between 0 and 1
 
-    // Combine the position-based color with the time-based modulation
-    vec4 value = vec4(base_red * time_red, base_green * time_green, 0.0, 1.0);
+        // Combine the position-based color with the time-based modulation
+        vec4 value = vec4(base_red * time_red, base_green * time_green, 0.0, 1.0);
 
-    imageStore(img_output, texel_coord, value);
-}
-    """
+        imageStore(img_output, texel_coord, value);
+        }
+        """
+    else:
+        _compute_source = """#version 430 core
+        layout (local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+
+        layout(rgba32f) uniform image2D img_output;
+        uniform float time;
+
+        void main() {
+        ivec2 texel_coord = ivec2(gl_GlobalInvocationID.xy);
+        
+        // Base color change on position
+        float base_red = float(texel_coord.x) / (gl_NumWorkGroups.x);
+        float base_green = float(texel_coord.y) / (gl_NumWorkGroups.y);
+
+        // Modulate color based on time
+        float time_red = (sin(time) + 1.0) / 2.0;  // Oscillates between 0 and 1
+        float time_green = (cos(time) + 1.0) / 2.0;  // Oscillates between 0 and 1
+
+        // Combine the position-based color with the time-based modulation
+        vec4 value = vec4(base_red * time_red, base_green * time_green, 0.0, 1.0);
+
+        imageStore(img_output, texel_coord, value);
+        }
+        """
+        
     
     return _compute_source
 
@@ -185,6 +179,40 @@ def set_uniforms_for_shader(emotion,shader_program,args):
 
 def create_program(emotion):
     # Creating shaders and program
+    # Vertex Shader
+    _vertex_source = """
+    #version 330 core
+    in vec2 position;
+    in vec3 tex_coords;
+    out vec3 texture_coords;
+
+    uniform WindowBlock
+    {
+        mat4 projection;
+        mat4 view;
+    } window;
+
+    void main()
+    {
+        gl_Position = window.projection * window.view * vec4(position, 1, 1);
+        texture_coords = tex_coords;
+    }
+    """
+
+    # Fragment Shader
+    _fragment_source = """
+    #version 330 core
+    in vec3 texture_coords;
+    out vec4 final_colors;
+
+    uniform sampler2D our_texture;
+
+    void main()
+    {
+        final_colors = texture(our_texture, texture_coords.xy);
+    }
+    """
+
     vert_shader = Shader(_vertex_source, 'vertex')
     frag_shader = Shader(_fragment_source, 'fragment')
     shader_program = ShaderProgram(vert_shader, frag_shader)
@@ -213,7 +241,7 @@ def shader_on_draw(emotion,shader_program, compute_program , batch,window,args):
 if __name__ == '__main__':
     
 
-    emotion = 'Sad'
+    emotion = 'Surprise'
     shader_program,compute_program = create_program(emotion)
     # Pyglet window setup
 
