@@ -6,7 +6,7 @@ import queue
 from model import *
 import pytchat
 from data import *
-from visualisations.visuals import visualise_body
+from visuals import visualise_body
 import pyglet
 
 # Use a pipeline as a high-level helper
@@ -101,7 +101,7 @@ args = argparse.Namespace(
         DROPOUT=0.2,
         LEARNING_RATE=0.0001,
         EPOCHS=30000,
-        FRAMES_GENERATE=300,
+        FRAMES_GENERATE=50,
         TRAIN=False,
         EVAL_EVERY=1000,
         CHECKPOINT_PATH="checkpoints/proto10_checkpoint_scheduled.pth",
@@ -307,6 +307,19 @@ def generate_batches_periodically(queue, period=2, last_frame=None):
         last_frame = unnorm_out
         
 # Function to update the visualisation
+def clear_sprites():
+    global limb_sprites
+    # delete any previous sprites-------------------------------------------------------------------------------------------------------------------
+    try:
+        # Delete existing sprites before redefining limb_sprites
+        for sprite in limb_sprites.values():
+            sprite.delete()  # This deletes the sprite from the GPU
+        limb_sprites = {}
+
+    except NameError:
+        print('Name error')
+        pass
+
 
 def update(dt):
     global frame_index

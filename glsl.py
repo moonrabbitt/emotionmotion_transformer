@@ -4,6 +4,7 @@ from pyglet.graphics.shader import Shader, ShaderProgram
 from pyglet.gl import *
 from pyglet.graphics import Group
 
+
 class RenderGroup(Group):
     def __init__(self, texture, program, order=0, parent=None):
         super().__init__(order, parent)
@@ -20,10 +21,12 @@ class RenderGroup(Group):
     def unset_state(self):
         glDisable(GL_BLEND)
 
+
 def create_quad(x, y, texture):
     x2 = x + texture.width
     y2 = y + texture.height
     return x, y, x2, y, x2, y2, x, y2
+
 
 # Vertex Shader
 _vertex_source = """
@@ -58,6 +61,8 @@ void main()
     final_colors = texture(our_texture, texture_coords.xy);
 }
 """
+
+
 def select_shader(emotion):
     if emotion == 'Sad':
         # Compute Shader
@@ -113,7 +118,7 @@ def select_shader(emotion):
             vec2 q;
             q.x = fbm(st + 0.00 * time);
             q.y = fbm(st + vec2(1.0));
-            
+
             vec2 p1 = vec2(fbm(st + q + vec2(1.7,9.2) + 0.15 * time));
             vec2 p2 = vec2(fbm(st + q + vec2(8.3,2.8) + 0.126 * time));
 
@@ -126,15 +131,15 @@ def select_shader(emotion):
             vec3 color = mix(vec3(0.101961,0.619608,0.666667), // Black
                         vec3(0.666667,0.666667,0.498039),
                         clamp((f*f)*4.0,0.0,1.0));
-                        
+
             color = mix(color,
                         vec3(0,0,0.164706),
                         clamp(length(q),0.0,1.0));
-                        
+
             color = mix(color,
                         vec3(0.666667,1,1),
                         clamp(length(r.x),0.0,1.0));
-            
+
             color = (f*f*f + .6*f*f + .5*f) * color;
 
             imageStore(img_output, texel_coord, vec4(color, 1.0));
@@ -150,7 +155,7 @@ def select_shader(emotion):
 
         void main() {
         ivec2 texel_coord = ivec2(gl_GlobalInvocationID.xy);
-        
+
         // Base color change on position
         float base_red = float(texel_coord.x) / (gl_NumWorkGroups.x);
         float base_green = float(texel_coord.y) / (gl_NumWorkGroups.y);
@@ -165,7 +170,7 @@ def select_shader(emotion):
         imageStore(img_output, texel_coord, value);
         }
         """
-        
+
     elif emotion == 'Surprise':
         _compute_source = """#version 430 core
         // adapted from https://github.com/genekogan/Processing-Shader-Examples/blob/master/ColorShaders/data/rain.glsl
@@ -281,7 +286,7 @@ def select_shader(emotion):
 
         void main() {
             ivec2 texel_coord = ivec2(gl_GlobalInvocationID.xy);
-       
+
             float time2 = (sin(time)+1)*10.0/slow;  // Oscillates between 0 and 1
             vec3 rgb = vec3(vec2(float(texel_coord.x)/thingres.x,float(texel_coord.y)/thingres.y), 0.1);
             rgb.g *= time2 * pnoise(vec2(rgb.rg + time2), vec2(rgb.rb));
@@ -292,28 +297,28 @@ def select_shader(emotion):
             //col = vec3(0.0,1.0,1.0);
 
             vec4 output_color = vec4(col,1.0);
-          
+
 
             imageStore(img_output, texel_coord, output_color);
         }
 
         """
-        
+
     elif emotion == 'Fear':
-        _compute_source= """ 
+        _compute_source = """ 
         #version 430 core
         //adapted from https://glslsandbox.com/e#107623.0
         layout (local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
 
         layout(rgba32f) uniform image2D img_output;
-        
+
         uniform float time;
         uniform vec2 resolution;
         uniform vec2 position;
-        
+
         #define MOD3 vec3(443.8975, 397.2973, 491.1871) // uv range
         #define PI 3.14159265
-        
+
         #define res resolution.xy
 
 
@@ -341,11 +346,11 @@ def select_shader(emotion):
 
         float cnoise(vec2 P, float rep){
             P.x = mod(P.x, rep); // x rep 1/2
-        
+
         vec4 Pi = floor(P.xyxy) + vec4(0.0, 0.0, 1.0, 1.0);
-            
+
             Pi.z = mod(Pi.z, rep); // x rep 2/2
-        
+
         vec4 Pf = fract(P.xyxy) - vec4(0.0, 0.0, 1.0, 1.0);
         Pi = mod(Pi, 289.0); // To avoid truncation effects in permutation
         vec4 ix = Pi.xzxz;
@@ -379,50 +384,48 @@ def select_shader(emotion):
 
         float Eye(vec2 p, float pupil, vec2 lpos) {
             pupil += .1*(1.-length(lpos))-.1;
-            
-            
+
+
             //lpos.x = sin(time);
-            
+
             // radial coords
             vec2 pr = vec2(atan(p.x, p.y) / PI / 2., clamp((length(p)-1.)/pupil+.8, 0., 1.));
-            
+
             // smooth curve from pupil to outer iris
             pr.y = smoothstep(0., 1., pr.y);
-            
+
             // noise frequency for radial coords
             vec2 freq = vec2(30., 1.5);
-            
+
             // radial noise
             float f = pow((cnoise(pr*freq, freq.x)+1.)/4., .5);
-            
+
             // more radial noise
             f -= 1.*pow((cnoise(pr*freq*vec2(2., 3.)+9., 2.*freq.x)+1.)/2.-.5, 2.);
-            
+
             //vec2 lpos = vec2(.5, .75);
-            
+
             // general shading
             float shade = dot(p, lpos);
-            
+
             // lightening of iris
             f -= .7 * shade;
-            
+
             // darker inner iris & pupil
             f *= pow(smoothstep(0., .5, pr.y), .15);
-            
+
             // darker ring around iris
             f = mix(f, .25, smoothstep(0.5, 1., pr.y+.2));
-            
-            
-            
+
             // mix in sclera
             f = mix(f, 1.-.2*dot(p, p)+.75*shade, smoothstep(0.7, .85, pr.y));
-            
+
             // highlight
             f = mix(1., f, clamp((length(p-lpos/1.)-.15)/.025, 0., 1.));
-            
+
             // eyelids
            f = mix(f, 0., clamp((length(vec2(p.x, abs(p.y))+vec2(0., 1.3))-2.15)/.04, 0., 1.));
-            
+
             return f;
         }
 
@@ -430,22 +433,20 @@ def select_shader(emotion):
             ivec2 texel_coord = ivec2(gl_GlobalInvocationID.xy);
 
             vec2 p = 10.* (vec2(texel_coord) - resolution / 2.0) / resolution.y;
-            
+
             // pupil contraction/expansion
             float t = 1.+.05*sHash11(1.5*time);
-            
-            vec2 position2 = vec2(-sin(position.x*0.01)*0.5,-sin(position.y*0.01)*0.5);
-            
-            
-            vec4 value = vec4( vec3(Eye(p, t, position2)), 1.0 );
-        
+
+            vec2 position2 = vec2(sin(position.x),sin(position.y));
+            vec4 value = vec4( vec3(Eye(p, t, position2-.5)), 1.0 );
+
         imageStore(img_output, texel_coord, value);
 
         }
 
 
         """
-    
+
     elif emotion == 'Anger':
         _compute_source = """#version 430 core
 
@@ -481,7 +482,7 @@ def select_shader(emotion):
         layout(rgba32f) uniform image2D img_output;
         uniform float time;
         uniform float slow;
-        
+
 
 
         vec4 mod289(vec4 x) {
@@ -499,12 +500,12 @@ def select_shader(emotion):
         vec2 fadeEffect(vec2 t) {
             return t * t * t * (t * (t * 6.0 - 15.0) + 10.0);
         }
-        
+
         float cnoise(vec2 P, float rep) {
             P.x = mod(P.x, rep);
-            
+
             vec4 Pi = floor(P.xyxy) + vec4(0.0, 0.0, 1.0, 1.0);
-            
+
             Pi.z = mod(Pi.z, rep);
             vec4 Pf = fract(P.xyxy) - vec4(0.0, 0.0, 1.0, 1.0);
             Pi = mod289(Pi); // To avoid truncation effects in permutation
@@ -541,7 +542,7 @@ def select_shader(emotion):
             float n_xy = mix(n_x.x, n_x.y, fade_xy.y);
             return 2.3 * n_xy;
         }
-        
+
         // Classic Perlin noise, periodic variant
         float pnoise(vec2 P, vec2 rep)
         {
@@ -584,9 +585,11 @@ def select_shader(emotion):
         return 1.3 * n_xy;
         }
 
+
+
         void main() {
         ivec2 texel_coord = ivec2(gl_GlobalInvocationID.xy);
-        
+
         // Base color change on position
         float base_red = float(texel_coord.x) / (gl_NumWorkGroups.x);
         float base_green = float(texel_coord.y) / (gl_NumWorkGroups.y);
@@ -594,10 +597,10 @@ def select_shader(emotion):
         // Modulate color based on time
         float time_red = (sin(time) + 1.0) ;  // Oscillates between 0 and 1
         float time_green = (cos(time) + 1.0) ;  // Oscillates between 0 and 1
-        
+
         float noise = pnoise(vec2(time_red,time_green),vec2(base_red,base_green));
         float noise1 = pnoise(vec2(time_red,time_green),vec2(time_green,time_red));
-        
+
         noise = cnoise(vec2(noise1,noise));      
         vec2 rg = vec2(time_red,time_green)*noise + vec2(time_red,time_green)*noise1 ;
 
@@ -608,42 +611,47 @@ def select_shader(emotion):
         imageStore(img_output, texel_coord, value);
         }
         """
-    
+
     return _compute_source
 
-def set_uniforms_for_shader(emotion,shader_program):
+
+def set_uniforms_for_shader(emotion, shader_program,args):
     if emotion == 'Sad':
-        shader_program['time'] = (time.time() - start_time) 
-    
+        start_time = args
+        shader_program['time'] = (time.time() - start_time)
+
     elif emotion == 'Happiness':
-        current_time = (time.time()-start_time)*0.6
+        start_time = args
+        current_time = (time.time() - start_time) * 0.6
         shader_program['time'] = current_time
-        
+
     elif emotion == 'Surprise':
-  
-        shader_program['time'] = float(time.time() - start_time) 
+        start_time,window = args
+        shader_program['time'] = float(time.time() - start_time)
         shader_program['thingh'] = 1.0
         # shader_program['fade'] = 1.0
         shader_program['slow'] = 10.0
-   
+
         # print(shader_program['colour_h'])
         shader_program['thinggris'] = 1.0
-        shader_program['thingres'] = (float(window.width),float(window.height))
+        shader_program['thingres'] = (float(window.width), float(window.height))
         # print(shader_program['colour_h'])
-        
+
     elif emotion == 'Fear':
-        shader_program['time'] = float(time.time() - start_time) 
-        shader_program['resolution'] = (float(window.width),float(window.height*1.4))
+        start_time,window = args
+        shader_program['time'] = float(time.time() - start_time)
+        shader_program['resolution'] = (float(window.width), float(window.height * 1.4))
         # shader_program['resolution'] = (2500.0,2500.0)
-        shader_program['position'] = (window._mouse_x,window._mouse_y)
+        shader_program['position'] = (window._mouse_x, window._mouse_y)
+        print(shader_program['position'])
 
     elif emotion == 'Anger':
-        shader_program['resolution'] = (float(window.width),float(window.height))
-        
+        shader_program['resolution'] = (float(window.width), float(window.height))
+
     else:
+        start_time = args
         shader_program['time'] = float(time.time() - start_time)
 
-    
 
 def create_program(emotion):
     # Creating shaders and program
@@ -652,15 +660,16 @@ def create_program(emotion):
     shader_program = ShaderProgram(vert_shader, frag_shader)
     _compute_source = select_shader(emotion)
     compute_program = pyglet.graphics.shader.ComputeShaderProgram(_compute_source)
-    
-    return shader_program,compute_program
 
-def shader_on_draw(emotion, shader_program, compute_program , batch,window):
+    return shader_program, compute_program
+
+
+def shader_on_draw(emotion,shader_program, compute_program, batch,window,args):
     tex = pyglet.image.Texture.create(window.width, window.height, internalformat=GL_RGBA32F)
     tex.bind_image_texture(unit=compute_program.uniforms['img_output'].location)
-    
-    set_uniforms_for_shader(emotion,compute_program)
-    
+
+    set_uniforms_for_shader(emotion, compute_program,args)
+
     with compute_program:
         compute_program.dispatch(tex.width, tex.height, 1, barrier=GL_ALL_BARRIER_BITS)
 
@@ -669,29 +678,43 @@ def shader_on_draw(emotion, shader_program, compute_program , batch,window):
     vertex_positions = create_quad(0, 0, tex)
 
     vertex_list = shader_program.vertex_list_indexed(4, GL_TRIANGLES, indices, batch, group,
-                                                    position=('f', vertex_positions),
-                                                    tex_coords=('f', tex.tex_coords))
+                                                     position=('f', vertex_positions),
+                                                     tex_coords=('f', tex.tex_coords))
 
+import time
 if __name__ == '__main__':
-    
     emotion = 'Fear'
-    shader_program,compute_program = create_program(emotion)
+    shader_program, compute_program = create_program(emotion)
     # Pyglet window setup
 
     window = pyglet.window.Window(width=1200, height=1800)
-    
+    # Main loop
+    global start_time
+    start_time = time.time()
+
+
     @window.event
     def on_draw():
         window.clear()
         batch = pyglet.graphics.Batch()
-
-        shader_on_draw(shader_program, compute_program, batch)
         
+        if emotion == 'Sad':
+            args = start_time
+            print(args)
+
+        elif emotion == 'Happiness':
+            args = start_time
+
+        elif emotion == 'Fear':
+            args = (start_time,window)
+        else:
+            args = start_time
+
+        shader_on_draw(emotion,shader_program, compute_program, batch,window,args)
+
         batch.draw()
 
-        
-    # Main loop
-    global start_time
-    start_time = time.time()
-    
+
+
+
     pyglet.app.run()

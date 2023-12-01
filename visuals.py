@@ -123,6 +123,7 @@ def return_properties(emotion_vector, connection):
 
 # @profile
 def visualise_body(frame_data, emotion_vectors, max_x, max_y,window,start_time,frame_index):
+    print('visualising body')
     # clear memory
     global limb_sprites
 
@@ -592,6 +593,21 @@ void main() {
 
 """
 
+
+def clear_sprites():
+    global limb_sprites
+    # delete any previous sprites-------------------------------------------------------------------------------------------------------------------
+    try:
+        # Delete existing sprites before redefining limb_sprites
+        for sprite in limb_sprites.values():
+            sprite.delete()  # This deletes the sprite from the GPU
+        limb_sprites = {}
+
+    except NameError:
+        print('Name error')
+        pass
+
+
 if __name__ == '__main__':
     import queue
     import torch
@@ -621,25 +637,12 @@ if __name__ == '__main__':
     emotion_vectors = (torch.tensor([[0.0, 0.0, 0.0, 1.0, 0.0, 0.0,0.0]]), torch.tensor([[0.0, 0.0, 1.0, 0.0, 0.0, 0.0,0.0]]))
 
 
-    def clear_sprites():
-        global limb_sprites
-        # delete any previous sprites-------------------------------------------------------------------------------------------------------------------
-        try:
-            # Delete existing sprites before redefining limb_sprites
-            for sprite in limb_sprites.values():
-                sprite.delete()  # This deletes the sprite from the GPU
-            limb_sprites = {}
-
-        except NameError:
-            print('Name error')
-            pass
 
 
     def update(dt):
         global frame_index
         if not frame_queue.empty():
             frame_data = frame_queue.get()  # Get the next frame from the queue
-            frame_data = frame_data
             visualise_body(frame_data, emotion_vectors, max_x, max_y, window, start_time, frame_index)  # Visualize it
 
             frame_index += 1
