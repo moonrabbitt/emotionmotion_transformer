@@ -15,6 +15,7 @@ import math
 import torch.nn.functional as F
 from torch.distributions import Normal
 
+
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
 ONEOVERSQRT2PI = 1.0 / math.sqrt(2 * math.pi)
@@ -324,21 +325,26 @@ def sample_dynamic_emotion_individual(cond_sequence, pi, sigma, mu, emotion_logi
 
     #  calculate_dynamic_emotion_scores_individual returns [B, T, G, O]
     scores = calculate_dynamic_emotion_scores_individual(cond_sequence, mu, sigma, emotion_logits, k, emotion_weight)
-    print("scores: ")
-    print(scores)
+    # Combine scores with log of pi for each Gaussian component
+    log_pi = torch.log(pi + 1e-10)  # Adding a small value to avoid log(0)
+    combined_scores = scores + log_pi.unsqueeze(-1)  # Broadcasting to match dimensions
     
     for o in range(O):
-        selected_gaussian_idx_o = torch.argmax(scores[:, :, :, o], dim=2)  # [B, T]
-        print("selected gaussian idx o: ")
-        print(selected_gaussian_idx_o)
-        idx_o = selected_gaussian_idx_o.unsqueeze(-1)  # [B, T, 1]
-        
-        # Sample from the selected Gaussian component for keypoint 'o'
-        selected_mu_o = torch.gather(mu[:, :, :, o], 2, idx_o).squeeze(2)  # [B, T]
-        selected_sigma_o = torch.gather(sigma[:, :, :, o], 2, idx_o).squeeze(2) / variance_div  # Adjust variance if needed
+        for t in range(T):
+            # Create a categorical distribution based on the combined scores
+            categorical_dist = Categorical(logits=combined_scores[:, t, :, o])
 
-        normal_dist = Normal(selected_mu_o, selected_sigma_o)
-        selected_samples[:, :, o] = normal_dist.sample()
+            # Probabilistically select a Gaussian component
+            selected_gaussian_idx_t_o = categorical_dist.sample()  # [B]
+
+            # Gather the parameters of the selected Gaussian component
+            idx_t_o = selected_gaussian_idx_t_o.unsqueeze(-1)  # [B, 1]
+            selected_mu_t_o = torch.gather(mu[:, t, :, o], 1, idx_t_o).squeeze(1)  # [B]
+            selected_sigma_t_o = torch.gather(sigma[:, t, :, o], 1, idx_t_o).squeeze(1) / variance_div
+
+            # Sample from the selected Gaussian component for keypoint 'o' at time 't'
+            normal_dist = Normal(selected_mu_t_o, selected_sigma_t_o)
+            selected_samples[:, t, o] = normal_dist.sample()
 
     return selected_samples.to(device)
 
