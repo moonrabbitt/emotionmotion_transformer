@@ -274,7 +274,7 @@ def calculate_dynamic_emotion_scores_individual(mu, sigma, emotion_logits, k, em
 
     # Emotion score (including penalizing 'Neutral' emotions)
     neutral_score = emotion_logits[:, neutral_index].unsqueeze(1).unsqueeze(2).expand(-1, T, G)  # [B, T, G]
-    non_neutral_bonus = 1 - neutral_score
+    non_neutral_bonus = (1 - neutral_score)*emotion_weight # so movement changes a bit
     dominant_emotion = emotion_logits.max(dim=1).values.unsqueeze(1).unsqueeze(2).expand(-1, T, G)  # [B, T, G]
     emotion_score = dominant_emotion * non_neutral_bonus
 
