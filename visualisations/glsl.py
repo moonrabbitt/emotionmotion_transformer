@@ -626,7 +626,7 @@ def set_uniforms_for_shader(emotion, shader_program,args):
         shader_program['time'] = current_time
 
     elif emotion == 'Surprise':
-        start_time = args
+        start_time,window = args
         shader_program['time'] = float(time.time() - start_time)
         shader_program['thingh'] = 1.0
         # shader_program['fade'] = 1.0
@@ -638,7 +638,7 @@ def set_uniforms_for_shader(emotion, shader_program,args):
         # print(shader_program['colour_h'])
 
     elif emotion == 'Fear':
-        start_time = args
+        start_time,window = args
         shader_program['time'] = float(time.time() - start_time)
         shader_program['resolution'] = (float(window.width), float(window.height * 1.4))
         # shader_program['resolution'] = (2500.0,2500.0)

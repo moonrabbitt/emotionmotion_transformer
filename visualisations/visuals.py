@@ -467,8 +467,11 @@ def visualise_body(frame_data, emotion_vectors, max_x, max_y,window,start_time,f
 
         elif dominant_emotion == 'Happiness':
             args = start_time
+
+        elif dominant_emotion == 'Fear':
+            args = (start_time,window)
         else:
-            args = None
+            args = start_time
 
         glsl.shader_on_draw(dominant_emotion, shader_program, program, background_batch,window,args)
 
