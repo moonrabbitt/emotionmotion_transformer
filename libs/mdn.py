@@ -252,22 +252,40 @@ def sample_dynamic_emotion(pi, sigma, mu, emotion_logits, k=1.0, emotion_weight=
 
     return selected_samples
 
-def calculate_dynamic_emotion_scores_individual(mu, sigma, emotion_logits, k, emotion_weight, neutral_index=4):
+def calculate_dynamic_emotion_scores_individual(last_frame, mu, sigma, emotion_logits, k, emotion_weight, neutral_index=4):
     """
     Calculate scores for each keypoint of each Gaussian component based on dynamic movement, noise, and emotion.
+    
+    Input is absolute coordinates
 
     :param mu: Means of Gaussian components [B, T, G, O]
     :param sigma: Standard deviations of Gaussian components [B, T, G, O]
     :param emotion_logits: Emotion logits [B, Emotion_Categories]
     :param k: Weight for the noise component
     :param emotion_weight: Weight for the emotion component
-    :param neutral_index: Index of 'Neutral' in emotion logits
+    :param neutral_index: Index of 'Neutral' in emotion logit
     :return: A tensor of scores [B, T, G, O]
+    
+    pi - different pi values different types of the same emotion
+    sigma - variability or diversity
+    mu - central tendency - most typical pattern of motion for each component associated with emotion - avoid this
     """
     B, T, G, O = mu.shape
+    # Prepare the reference for the first frame of mu
+    # Add an extra dimension for Gaussian components before expanding
+    last_frame_ref = last_frame.unsqueeze(1).unsqueeze(2).expand(B, 1, G, O)  # [B, 1, G, O] # Shape: [B, O, 1, O]
+
+    # Now expand it to match the dimensions of mu
+    last_frame_ref = last_frame_ref.expand(B, 1, G, O)  # Shape: [B, 1, G, O]
+
+    
+    # Prepare the previous frames of mu for subtraction
+    prev_frames = torch.cat([last_frame_ref, mu[:, :-1, :, :]], dim=1)  # [B, T, G, O]
+    
+    deltas = mu - prev_frames  # [B, T, G, O]
 
     # Movement score (dynamic movement)
-    movement_score = torch.sqrt(torch.sum(mu**2, dim=3), )  # [B, T, G]
+    movement_score = torch.sqrt(torch.sum(deltas**2, dim=3), )  # [B, T, G] # euclidean distance of motion between frames
 
     # Noise penalty
     noise_penalty = k * torch.sqrt(torch.sum(sigma**2, dim=3))  # [B, T, G]
@@ -289,7 +307,7 @@ def calculate_dynamic_emotion_scores_individual(mu, sigma, emotion_logits, k, em
     return scores
 
 
-def sample_dynamic_emotion_individual(pi, sigma, mu, emotion_logits, k=2.0, emotion_weight=2.0, variance_div=1000):
+def sample_dynamic_emotion_individual(cond_sequence, pi, sigma, mu, emotion_logits, k=2.0, emotion_weight=2.0, variance_div=100):
     """
     Sample from the MDN focusing on individual keypoints with emotion awareness.
 
@@ -304,11 +322,15 @@ def sample_dynamic_emotion_individual(pi, sigma, mu, emotion_logits, k=2.0, emot
     B, T, G, O = mu.shape
     selected_samples = torch.zeros((B, T, O))
 
-    # Assume a function calculate_dynamic_emotion_scores_individual returns [B, T, G, O]
-    scores = calculate_dynamic_emotion_scores_individual(mu, sigma, emotion_logits, k, emotion_weight)
+    #  calculate_dynamic_emotion_scores_individual returns [B, T, G, O]
+    scores = calculate_dynamic_emotion_scores_individual(cond_sequence, mu, sigma, emotion_logits, k, emotion_weight)
+    print("scores: ")
+    print(scores)
     
     for o in range(O):
         selected_gaussian_idx_o = torch.argmax(scores[:, :, :, o], dim=2)  # [B, T]
+        print("selected gaussian idx o: ")
+        print(selected_gaussian_idx_o)
         idx_o = selected_gaussian_idx_o.unsqueeze(-1)  # [B, T, 1]
         
         # Sample from the selected Gaussian component for keypoint 'o'

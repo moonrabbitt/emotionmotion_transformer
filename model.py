@@ -325,11 +325,13 @@ class MotionModel(nn.Module):
         MIN_VARIANCE = 1.0
 
         for i in range(max_new_tokens):
-            cond_sequence = generated_sequence[:, -block_size:]  # Use the block_size parameter
+            # cond_sequence is previous framw
+            cond_sequence = generated_sequence[:, -block_size:]  # Use the block_size parameter - shape = [8,16,50]
             # Calculate variance using a cosine function
             normalized_index = (math.pi / max_new_tokens) * i  # Normalizing the iteration index
             variance = ((MAX_VARIANCE - MIN_VARIANCE) * (math.cos(normalized_index) + 1) / 2) + MIN_VARIANCE
-
+            
+            
             if USE_MDN:
                 pi, sigma, mu, logits, emotion_logits, _, _ = self(inputs=cond_sequence, emotions=generated_emotions)
 
@@ -339,7 +341,8 @@ class MotionModel(nn.Module):
         
                 # next_values = mdn.sample_dynamic_emotion(pi, sigma, mu, emotion_logits, k=1.0, emotion_weight=1.0)
                 emotion_weight = (1+ (math.cos(normalized_index)))
-                next_values = mdn.sample_dynamic_emotion_individual(pi, sigma, mu, emotion_logits, k=2.0, emotion_weight=emotion_weight)
+                last_frame = cond_sequence[:, -1, :]  # Get the last frame from the cond sequence
+                next_values = mdn.sample_dynamic_emotion_individual(last_frame, pi, sigma, mu, emotion_logits, k=2.0, emotion_weight=emotion_weight)
                 # next_values = mdn.sample(pi, sigma, mu, variance)
                 
                 # random sample - previous implementation
