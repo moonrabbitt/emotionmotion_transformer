@@ -11,6 +11,7 @@ from pyglet.text import Label
 import random
 import glob
 import glsl
+from memory_profiler import profile
 
 # Set root directory
 root_dir = "C:\\Users\\avika\\OneDrive\\Documents\\UAL\\interactive_dance_thesis"
@@ -120,8 +121,12 @@ def return_properties(emotion_vector, connection):
         return None, None
 
 
-
+# @profile
 def visualise_body(frame_data, emotion_vectors, max_x, max_y,window,start_time,frame_index):
+    # clear memory
+    global limb_sprites
+
+    clear_sprites()
     # Preprocess-------------------------------------------------------------------------------------------------------------------
     emotion_in, generated_emotion = emotion_vectors
     emotion_in = emotion_in[0].tolist()  # Assuming emotion_in is a tensor
@@ -135,17 +140,7 @@ def visualise_body(frame_data, emotion_vectors, max_x, max_y,window,start_time,f
     # Get the corresponding emotion label
     dominant_emotion = emotion_labels[max_emotion_index]
     
-    # delete any previous sprites-------------------------------------------------------------------------------------------------------------------
-    try:
-        # Delete existing sprites to prevent memory leaks
-        for sprite in limb_sprites.values():
-            if sprite.batch:
-                sprite.delete()  # Remove from batch if part of one
-            del sprite  # Delete the sprite object
-        limb_sprites.clear()  # Clear the dictionary
-        
-    except NameError:
-        pass
+
         
     # Load the shaders-------------------------------------------------------------------------------------------------------------------
     shader_program,program = glsl.create_program(dominant_emotion)
@@ -458,12 +453,11 @@ def visualise_body(frame_data, emotion_vectors, max_x, max_y,window,start_time,f
 
 
 
-
-
     # Pyglet draw event
     @window.event
     def on_draw():
         window.clear()
+
         background_batch = pyglet.graphics.Batch()
 
         # Background-----------------------------------------------------------------------------------------------
@@ -483,6 +477,7 @@ def visualise_body(frame_data, emotion_vectors, max_x, max_y,window,start_time,f
         # Sprite -----------------------------------------------------------------------------------------------
 
         draw_frame(frame_data)
+
         
         
         
@@ -542,7 +537,7 @@ def visualise_body(frame_data, emotion_vectors, max_x, max_y,window,start_time,f
                 label = Label(line, x=window.width - 120, y=y, font_size=12, color=(255, 255, 255, 255))
                 label.draw()
         #---------------------------------------------------------------------------------------------------
-        
+
     
         
 
@@ -598,6 +593,7 @@ if __name__ == '__main__':
     import queue
     import torch
 
+
     # Read data from a JSON file
     with open('data/data.json', 'r') as file:
         loaded_data = json.load(file)
@@ -614,19 +610,38 @@ if __name__ == '__main__':
     # Preload frames into the queue
     for frame in unnorm_out:
         frame_queue.put(frame)
+    print(len(unnorm_out))
         
     # emotion_labels = ['Anger', 'Disgust', 'Fear', 'Happiness', 'Neutral', 'Sad', 'Surprise']
 
     # happy emotion vector for testing
-    emotion_vectors = (torch.tensor([[0.0, 0.0, 0.0, 1.0, 0.0, 0.0,0.0]]), torch.tensor([[1.0, 0.0, 0.0, 0.0, 0.0, 0.0,0.0]]))
-    
+    emotion_vectors = (torch.tensor([[0.0, 0.0, 0.0, 1.0, 0.0, 0.0,0.0]]), torch.tensor([[0.0, 0.0, 1.0, 0.0, 0.0, 0.0,0.0]]))
+
+
+    def clear_sprites():
+        global limb_sprites
+        # delete any previous sprites-------------------------------------------------------------------------------------------------------------------
+        try:
+            # Delete existing sprites before redefining limb_sprites
+            for sprite in limb_sprites.values():
+                sprite.delete()  # This deletes the sprite from the GPU
+            limb_sprites = {}
+
+        except NameError:
+            print('Name error')
+            pass
+
+
     def update(dt):
         global frame_index
         if not frame_queue.empty():
             frame_data = frame_queue.get()  # Get the next frame from the queue
             frame_data = frame_data 
             visualise_body(frame_data, emotion_vectors, max_x, max_y, window, start_time, frame_index)  # Visualize it
+
             frame_index += 1
+            print(frame_index)
+
         else:
             pyglet.app.exit()
     
@@ -644,3 +659,4 @@ if __name__ == '__main__':
     # Required in global scope ----------------------------------------
 
     pyglet.app.run()
+
