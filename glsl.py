@@ -412,6 +412,8 @@ def select_shader(emotion):
             // darker ring around iris
             f = mix(f, .25, smoothstep(0.5, 1., pr.y+.2));
             
+            
+            
             // mix in sclera
             f = mix(f, 1.-.2*dot(p, p)+.75*shade, smoothstep(0.7, .85, pr.y));
             
@@ -432,8 +434,10 @@ def select_shader(emotion):
             // pupil contraction/expansion
             float t = 1.+.05*sHash11(1.5*time);
             
-            vec2 position2 = vec2(sin(position.x),sin(position.y));
-            vec4 value = vec4( vec3(Eye(p, t, position2-.5)), 1.0 );
+            vec2 position2 = vec2(-sin(position.x*0.01)*0.5,-sin(position.y*0.01)*0.5);
+            
+            
+            vec4 value = vec4( vec3(Eye(p, t, position2)), 1.0 );
         
         imageStore(img_output, texel_coord, value);
 
@@ -580,8 +584,6 @@ def select_shader(emotion):
         return 1.3 * n_xy;
         }
 
-
-
         void main() {
         ivec2 texel_coord = ivec2(gl_GlobalInvocationID.xy);
         
@@ -618,7 +620,6 @@ def set_uniforms_for_shader(emotion,shader_program):
         shader_program['time'] = current_time
         
     elif emotion == 'Surprise':
-        
   
         shader_program['time'] = float(time.time() - start_time) 
         shader_program['thingh'] = 1.0
@@ -635,8 +636,7 @@ def set_uniforms_for_shader(emotion,shader_program):
         shader_program['resolution'] = (float(window.width),float(window.height*1.4))
         # shader_program['resolution'] = (2500.0,2500.0)
         shader_program['position'] = (window._mouse_x,window._mouse_y)
-        print(shader_program['position'])
-        
+
     elif emotion == 'Anger':
         shader_program['resolution'] = (float(window.width),float(window.height))
         
@@ -655,7 +655,7 @@ def create_program(emotion):
     
     return shader_program,compute_program
 
-def shader_on_draw(shader_program, compute_program , batch):
+def shader_on_draw(emotion, shader_program, compute_program , batch,window):
     tex = pyglet.image.Texture.create(window.width, window.height, internalformat=GL_RGBA32F)
     tex.bind_image_texture(unit=compute_program.uniforms['img_output'].location)
     
@@ -674,7 +674,6 @@ def shader_on_draw(shader_program, compute_program , batch):
 
 if __name__ == '__main__':
     
-
     emotion = 'Fear'
     shader_program,compute_program = create_program(emotion)
     # Pyglet window setup

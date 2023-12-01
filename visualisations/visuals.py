@@ -101,7 +101,7 @@ def return_properties(emotion_vector, connection):
         path = random.choice(glob.glob(file_path))
         
         scale = 1.0
-        if chosen_emotion == 'Happiness':
+        if chosen_emotion == 'Happiness':                                                                                                                                                                                
             scale = 1.0
         elif chosen_emotion == 'Sad':
             scale = 1.5
@@ -121,9 +121,6 @@ def return_properties(emotion_vector, connection):
 
 
 
-    
-    
-
 def visualise_body(frame_data, emotion_vectors, max_x, max_y,window,start_time,frame_index):
     # Preprocess-------------------------------------------------------------------------------------------------------------------
     emotion_in, generated_emotion = emotion_vectors
@@ -138,6 +135,18 @@ def visualise_body(frame_data, emotion_vectors, max_x, max_y,window,start_time,f
     # Get the corresponding emotion label
     dominant_emotion = emotion_labels[max_emotion_index]
     
+    # delete any previous sprites-------------------------------------------------------------------------------------------------------------------
+    try:
+        # Delete existing sprites to prevent memory leaks
+        for sprite in limb_sprites.values():
+            if sprite.batch:
+                sprite.delete()  # Remove from batch if part of one
+            del sprite  # Delete the sprite object
+        limb_sprites.clear()  # Clear the dictionary
+        
+    except NameError:
+        pass
+        
     # Load the shaders-------------------------------------------------------------------------------------------------------------------
     shader_program,program = glsl.create_program(dominant_emotion)
 
@@ -155,7 +164,7 @@ def visualise_body(frame_data, emotion_vectors, max_x, max_y,window,start_time,f
                     'L-Elb', 'L-Wr', 'MidHip', 'R-Hip', 'R-Knee', 'R-Ank', 
                     'L-Hip', 'L-Knee', 'L-Ank', 'R-Eye', 'L-Eye', 'R-Ear', 
                     'L-Ear', 'L-BigToe', 'L-SmallToe', 'L-Heel', 'R-BigToe', 
-                    'R-SmallToe', 'R-Heel', 'R-Pupil' , 'L-Pupil','Head','L-Hand','R-Hand'] #L-Pupil and R-Pupil are not in the original keypointsMapping
+                    'R-SmallToe', 'R-Heel', 'R-Pupil' , 'L-Pupil','Head','L-Hand','R-Hand','Mouth'] #L-Pupil and R-Pupil are not in the original keypointsMapping
 
     # Define the limb connections using names
     limb_connections_names = [
@@ -193,6 +202,7 @@ def visualise_body(frame_data, emotion_vectors, max_x, max_y,window,start_time,f
         ('L-Pupil',),
         ('R-Eye',),
         ('R-Pupil',),
+        ('Mouth',),
         
     ]
     
@@ -255,6 +265,13 @@ def visualise_body(frame_data, emotion_vectors, max_x, max_y,window,start_time,f
                     limb_image = pyglet.image.load(image_path)
                     limb_image.anchor_x = limb_image.width 
                     limb_image.anchor_y = limb_image.height//2
+                    
+                elif connection == ('Mouth',):
+                    image_path,scale = return_properties(emotion_out,connection)
+                    limb_image = pyglet.image.load(image_path)
+                    limb_image.anchor_x = limb_image.width // 2
+                    limb_image.anchor_y = limb_image.height
+             
                 
                 limb_sprites[(keypointsMapping.index(connection[0]),)] = pyglet.sprite.Sprite(limb_image)
                 
@@ -391,6 +408,12 @@ def visualise_body(frame_data, emotion_vectors, max_x, max_y,window,start_time,f
                     sprite.scale = 0.3*scale
                     limb = (4,) # R-Wr
                 
+                elif limb == (keypointsMapping.index('Mouth'),): # Mouth
+                    sprite.width = hand_width*2
+                    sprite.height = hand_height/2
+                    sprite.scale = 0.3*scale
+                    limb = (0,)
+                
                 else: 
                     sprite.width = hand_width
                     sprite.height = hand_height
@@ -426,12 +449,15 @@ def visualise_body(frame_data, emotion_vectors, max_x, max_y,window,start_time,f
                 # Set sprite properties
                 
                 sprite.rotation = math.degrees(angle)
-                
+        
                 sprite.scale = (distance / sprite.height)*1.1 *scale
                 
                 sprite.x, sprite.y = start_x, start_y
             
             sprite.draw()
+
+
+
 
 
     # Pyglet draw event
@@ -450,7 +476,7 @@ def visualise_body(frame_data, emotion_vectors, max_x, max_y,window,start_time,f
         else:
             args = None
 
-        glsl.shader_on_draw(dominant_emotion, shader_program, program, background_batch, window, args)
+        # glsl.shader_on_draw(dominant_emotion, shader_program, program, background_batch,window)
         
         background_batch.draw()
 
@@ -580,8 +606,9 @@ if __name__ == '__main__':
     unnorm_out = loaded_data["unnorm_out"]
     max_x = loaded_data["max_x"]
     max_y = loaded_data["max_y"]
-    
+    global window
     window = pyglet.window.Window(int(max_x) + 50, int(max_y) + 50)
+
     frame_queue = queue.Queue()  # Queue to hold individual frames
     
     # Preload frames into the queue
@@ -591,7 +618,7 @@ if __name__ == '__main__':
     # emotion_labels = ['Anger', 'Disgust', 'Fear', 'Happiness', 'Neutral', 'Sad', 'Surprise']
 
     # happy emotion vector for testing
-    emotion_vectors = (torch.tensor([[0.0, 0.0, 0.0, 1.0, 0.0, 0.0,0.0]]), torch.tensor([[0.0, 1.0, 0.0, 0.0, 0.0, 0.0,0.0]]))
+    emotion_vectors = (torch.tensor([[0.0, 0.0, 0.0, 1.0, 0.0, 0.0,0.0]]), torch.tensor([[1.0, 0.0, 0.0, 0.0, 0.0, 0.0,0.0]]))
     
     def update(dt):
         global frame_index
