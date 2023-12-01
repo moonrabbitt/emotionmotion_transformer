@@ -338,7 +338,7 @@ class MotionModel(nn.Module):
                 # next_values = mdn.select_sample(pi, sigma, mu)
         
                 # next_values = mdn.sample_dynamic_emotion(pi, sigma, mu, emotion_logits, k=1.0, emotion_weight=1.0)
-                next_values = mdn.sample_dynamic_emotion_individual(pi, sigma, mu, emotion_logits, k=2.0, emotion_weight=1.0)
+                next_values = mdn.sample_dynamic_emotion_individual(pi, sigma, mu, emotion_logits, k=2.0, emotion_weight=0.1* (math.cos(normalized_index)))
                 # next_values = mdn.sample(pi, sigma, mu, variance)
                 
                 # random sample - previous implementation
