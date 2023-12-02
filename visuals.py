@@ -120,8 +120,12 @@ def return_properties(emotion_vector, connection):
         # body part not found
         return None, None
 
+def global_load_images():
+    # GPU memory management - store path to not load sprite every frame
+    global loaded_images
+    loaded_images = {}  # Dictionary to store loaded images
 
-@profile
+# @profile
 def visualise_body(frame_data, emotion_vectors, max_x, max_y,window,start_time,frame_index):
     # print('visualising body')
     # clear memory
@@ -213,21 +217,27 @@ def visualise_body(frame_data, emotion_vectors, max_x, max_y,window,start_time,f
             if len(connection) == 1:
                 if connection == ('Head',):
                     image_path,scale = return_properties(emotion_out,connection)
-                    limb_image = pyglet.image.load(image_path)
+                    if image_path not in loaded_images:
+                        loaded_images[image_path] = pyglet.image.load(image_path)
+                    limb_image = loaded_images[image_path]
                     limb_image.anchor_x = limb_image.width // 2
                     limb_image.anchor_y = limb_image.height//2
                     head_width = limb_image.width
                     head_height = limb_image.height
                 elif connection == ('L-Hand',):
                     image_path,scale = return_properties(emotion_out,connection)
-                    limb_image = pyglet.image.load(image_path)
+                    if image_path not in loaded_images:
+                        loaded_images[image_path] = pyglet.image.load(image_path)
+                    limb_image = loaded_images[image_path]
                     limb_image.anchor_x = limb_image.width // 2
                     limb_image.anchor_y = limb_image.height + offset
                     hand_width = limb_image.width
                     hand_height = limb_image.height
                 elif connection == ('R-Hand',):
                     image_path,scale = return_properties(emotion_out,connection)
-                    limb_image = pyglet.image.load(image_path)
+                    if image_path not in loaded_images:
+                        loaded_images[image_path] = pyglet.image.load(image_path)
+                    limb_image = loaded_images[image_path]
                     limb_image.anchor_x = limb_image.width // 2
                     limb_image.anchor_y = limb_image.height - offset
                     hand_width = limb_image.width
@@ -235,7 +245,9 @@ def visualise_body(frame_data, emotion_vectors, max_x, max_y,window,start_time,f
 
                 elif connection == ('L-Eye',):
                     image_path,scale = return_properties(emotion_out,connection)
-                    limb_image = pyglet.image.load(image_path)
+                    if image_path not in loaded_images:
+                        loaded_images[image_path] = pyglet.image.load(image_path)
+                    limb_image = loaded_images[image_path]
                     limb_image.anchor_x = 0
                     limb_image.anchor_y = limb_image.height//2
                     eye_width = limb_image.width
@@ -244,13 +256,17 @@ def visualise_body(frame_data, emotion_vectors, max_x, max_y,window,start_time,f
                 elif connection == ('R-Pupil',):
                     # Load pupil images and set properties
                     image_path,scale = return_properties(emotion_out,connection)
-                    limb_image = pyglet.image.load(image_path)
+                    if image_path not in loaded_images:
+                        loaded_images[image_path] = pyglet.image.load(image_path)
+                    limb_image = loaded_images[image_path]
                     limb_image.anchor_x = 0
                     limb_image.anchor_y = limb_image.height//2
 
                 elif connection == ('R-Eye',):
                     image_path,scale = return_properties(emotion_out,connection)
-                    limb_image = pyglet.image.load(image_path)
+                    if image_path not in loaded_images:
+                        loaded_images[image_path] = pyglet.image.load(image_path)
+                    limb_image = loaded_images[image_path]
                     limb_image.anchor_x = limb_image.width
                     limb_image.anchor_y = limb_image.height//2
                     eye_width = limb_image.width
@@ -258,13 +274,17 @@ def visualise_body(frame_data, emotion_vectors, max_x, max_y,window,start_time,f
 
                 elif connection == ('L-Pupil',):
                     image_path,scale = return_properties(emotion_out,connection)
-                    limb_image = pyglet.image.load(image_path)
+                    if image_path not in loaded_images:
+                        loaded_images[image_path] = pyglet.image.load(image_path)
+                    limb_image = loaded_images[image_path]
                     limb_image.anchor_x = limb_image.width
                     limb_image.anchor_y = limb_image.height//2
 
                 elif connection == ('Mouth',):
                     image_path,scale = return_properties(emotion_out,connection)
-                    limb_image = pyglet.image.load(image_path)
+                    if image_path not in loaded_images:
+                        loaded_images[image_path] = pyglet.image.load(image_path)
+                    limb_image = loaded_images[image_path]
                     limb_image.anchor_x = limb_image.width // 2
                     limb_image.anchor_y = limb_image.height
 
@@ -274,7 +294,9 @@ def visualise_body(frame_data, emotion_vectors, max_x, max_y,window,start_time,f
             elif len(connection) == 4:
                 # Special case: multiple keypoints (e.g., four points)
                 image_path,scale = return_properties(emotion_out,connection)
-                limb_image = pyglet.image.load(image_path)
+                if image_path not in loaded_images:
+                    loaded_images[image_path] = pyglet.image.load(image_path)
+                limb_image = loaded_images[image_path]
                 limb_image.anchor_x = limb_image.width // 2
                 limb_image.anchor_y = limb_image.height - offset
                 body_width = limb_image.width
@@ -286,7 +308,9 @@ def visualise_body(frame_data, emotion_vectors, max_x, max_y,window,start_time,f
                 # Standard case: connection between two keypoints
                 try:
                     image_path,scale = return_properties(emotion_out,connection)
-                    limb_image = pyglet.image.load(image_path)
+                    if image_path not in loaded_images:
+                        loaded_images[image_path] = pyglet.image.load(image_path)
+                    limb_image = loaded_images[image_path]
                     limb_image.anchor_x = limb_image.width // 2
                     limb_image.anchor_y = limb_image.height - offset
 
@@ -572,9 +596,8 @@ if __name__ == '__main__':
 
     # happy emotion vector for testing
     emotion_vectors = (torch.tensor([[0.0, 0.0, 0.0, 1.0, 0.0, 0.0,0.0]]), torch.tensor([[1.0, 0.0, 0.0, 0.0, 0.0, 0.0,0.0]]))
-
-
-
+    
+    global_load_images()
 
     def update(dt):
         global frame_index
