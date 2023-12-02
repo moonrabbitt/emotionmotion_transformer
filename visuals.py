@@ -121,7 +121,7 @@ def return_properties(emotion_vector, connection):
         return None, None
 
 
-# @profile
+@profile
 def visualise_body(frame_data, emotion_vectors, max_x, max_y,window,start_time,frame_index):
     # print('visualising body')
     # clear memory
@@ -501,8 +501,6 @@ def visualise_body(frame_data, emotion_vectors, max_x, max_y,window,start_time,f
         # foreground.draw()
 
 
-
-
         # Load the emotion vectors-------------------------------------------------------------------------------------------------------------------
 
         if emotion_vectors is not None:
@@ -531,57 +529,6 @@ def visualise_body(frame_data, emotion_vectors, max_x, max_y,window,start_time,f
                 label = Label(line, x=window.width - 120, y=y, font_size=12, color=(255, 255, 255, 255))
                 label.draw()
         #---------------------------------------------------------------------------------------------------
-
-
-
-
-# glitch effect
-
-def create_fullscreen_quad():
-    # Coordinates for a fullscreen quad (two triangles)
-    return [-1, -1, 1, -1, 1, 1, -1, 1]
-
-
-
-# Fragment Shader for Glitch Effect
-_glitch_fragment_shader_source ="""
-#version 430 core
-layout (local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
-
-layout(rgba32f) uniform image2D img_output;
-uniform float time;
-uniform vec2 resolution;
-
-// Function to generate random values
-float rand(vec2 co) {
-    return fract(sin(dot(co.xy, vec2(12.9898, 78.233))) * 43758.5453);
-}
-
-void main() {
-    ivec2 texel_coord = ivec2(gl_GlobalInvocationID.xy);
-    vec2 uv = vec2(texel_coord) / resolution.xy;
-
-    // Glitch effect parameters
-    float glitchIntensity = abs(sin(time)); // Varies between 0 and 1 over time
-    float stripeWidth = 0.02; // Width of the glitch stripes
-    float noiseIntensity = (rand(uv + time) * glitchIntensity)/2; // Random noise intensity
-
-    // Calculate stripe pattern based on the y-coordinate
-    float stripes = step(0.5 + glitchIntensity * 0.5, fract(uv.y / stripeWidth));
-    
-    // Base color variation for glitch
-    vec3 colorShift = vec3(rand(uv + time), rand(uv - time), rand(uv * time));
-    
-    vec3 color = mix(vec3(1.0, 0.0, 0.0), vec3(0.0, 1.0, 0.0), stripes); 
-    
-    // Apply stripes and noise to the color
-    color = vec3(1.0, 1.0, 1.0) * stripes * noiseIntensity + colorShift * (1.0 - stripes);
-
-    // Output the final color with some transparency
-    imageStore(img_output, texel_coord, vec4(color, 0.5));
-}
-
-"""
 
 
 def clear_sprites():
