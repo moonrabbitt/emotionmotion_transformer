@@ -620,15 +620,19 @@ def pad_sequence_to_length(sequence, length):
 
 def smooth_generated_sequence_with_cap(generated_sequence, max_movement):
     B, T, C = generated_sequence.shape
+    print(f"Smoothing generated sequence with max movement {max_movement}...")
+    
     smoothed_sequence = []
     max_length = 0
     for b in range(B):
         batch_sequence = [generated_sequence[b, 0]]
+        print(f"Length before smoothing for batch {b}: {len(batch_sequence)}")  # Length of the sequence before smoothing
         for t in range(1, T):
             capped_frames = cap_movements(generated_sequence[b, t - 1], generated_sequence[b, t], max_movement)
             batch_sequence.extend(capped_frames[1:])  # Exclude the first frame to avoid duplicates
         max_length = max(max_length, len(batch_sequence))
         smoothed_sequence.append(torch.stack(batch_sequence))
+        print(f"Length of sequence after smoothing for batch {b}: {len(batch_sequence)}")
     
     # Pad sequences to the same length
     padded_sequence = [pad_sequence_to_length(seq, max_length) for seq in smoothed_sequence]

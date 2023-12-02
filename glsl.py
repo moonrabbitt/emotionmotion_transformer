@@ -447,169 +447,222 @@ def select_shader(emotion):
 
         """
 
-    elif emotion == 'Anger':
+    elif emotion == 'Disgust':
         _compute_source = """#version 430 core
-
-        layout (local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
-
-        layout(rgba32f) uniform image2D img_output; // Output image
-
-        uniform vec2 resolution; // Texture resolution
-
-        void main() {
-            ivec2 texel_coord = ivec2(gl_GlobalInvocationID.xy); // Get the coordinate of the current texel
-            if (texel_coord.x >= resolution.x || texel_coord.y >= resolution.y) return; // Check boundary
-
-            // Define two colors for interpolation
-            vec3 colorA = vec3(1.0, 0.0, 0.0); // Red
-            vec3 colorB = vec3(0.0, 0.0, 1.0); // Blue
-
-            // Calculate the interpolation factor
-            float factor = smoothstep(0.0, resolution.x, float(texel_coord.x));
-
-            // Interpolate between colorA and colorB
-            vec3 color = mix(colorA, colorB, factor);
-
-            // Store the computed color in the image
-            imageStore(img_output, texel_coord, vec4(color, 1.0));
-        }
-
-"""
-    else:
-        _compute_source = """#version 430 core
+        // taken and adapted from EGL to WGL from: https://glslsandbox.com/e#107662.0
         layout (local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
 
         layout(rgba32f) uniform image2D img_output;
         uniform float time;
-        uniform float slow;
+        uniform vec2 resolution;
 
-
-
-        vec4 mod289(vec4 x) {
-            return x - floor(x * (1.0 / 289.0)) * 289.0;
+        mat2 rotate2D(float r) {
+            return mat2(cos(r), sin(r), -sin(r), cos(r));
         }
-
-        vec4 permute(vec4 x) {
-            return mod289(((x * 34.0) + 1.0) * x);
-        }
-
-        vec4 taylorInvSqrt(vec4 r) {
-            return 1.79284291400159 - 0.85373472095314 * r;
-        }
-
-        vec2 fadeEffect(vec2 t) {
-            return t * t * t * (t * (t * 6.0 - 15.0) + 10.0);
-        }
-
-        float cnoise(vec2 P, float rep) {
-            P.x = mod(P.x, rep);
-
-            vec4 Pi = floor(P.xyxy) + vec4(0.0, 0.0, 1.0, 1.0);
-
-            Pi.z = mod(Pi.z, rep);
-            vec4 Pf = fract(P.xyxy) - vec4(0.0, 0.0, 1.0, 1.0);
-            Pi = mod289(Pi); // To avoid truncation effects in permutation
-            vec4 ix = Pi.xzxz;
-            vec4 iy = Pi.yyww;
-            vec4 fx = Pf.xzxz;
-            vec4 fy = Pf.yyww;
-
-            vec4 i = permute(permute(ix) + iy);
-
-            vec4 gx = fract(i * (1.0 / 41.0)) * 2.0 - 1.0 ;
-            vec4 gy = abs(gx) - 0.5 ;
-            vec4 tx = floor(gx + 0.5);
-            gx = gx - tx;
-
-            vec2 g00 = vec2(gx.x,gy.x);
-            vec2 g10 = vec2(gx.y,gy.y);
-            vec2 g01 = vec2(gx.z,gy.z);
-            vec2 g11 = vec2(gx.w,gy.w);
-
-            vec4 norm = taylorInvSqrt(vec4(dot(g00, g00), dot(g01, g01), dot(g10, g10), dot(g11, g11)));
-            g00 *= norm.x;
-            g01 *= norm.y;
-            g10 *= norm.z;
-            g11 *= norm.w;
-
-            float n00 = dot(g00, vec2(fx.x, fy.x));
-            float n10 = dot(g10, vec2(fx.y, fy.y));
-            float n01 = dot(g01, vec2(fx.z, fy.z));
-            float n11 = dot(g11, vec2(fx.w, fy.w));
-
-            vec2 fade_xy = fadeEffect(Pf.xy);
-            vec2 n_x = mix(vec2(n00, n01), vec2(n10, n11), fade_xy.x);
-            float n_xy = mix(n_x.x, n_x.y, fade_xy.y);
-            return 2.3 * n_xy;
-        }
-
-        // Classic Perlin noise, periodic variant
-        float pnoise(vec2 P, vec2 rep)
-        {
-        vec4 Pi = floor(P.xyxy) + vec4(0.0, 0.0, 1.0, 1.0);
-        vec4 Pf = fract(P.xyxy) - vec4(0.0, 0.0, 1.0, 1.0);
-        Pi = mod(Pi, rep.xyxy); // To create noise with explicit period
-        Pi = mod289(Pi); // To avoid truncation effects in permutation
-        vec4 ix = Pi.xzxz;
-        vec4 iy = Pi.yyww;
-        vec4 fx = Pf.xzxz;
-        vec4 fy = Pf.yyww;
-
-        //  vec4 i = permute(permute(ix) + iy);
-        vec4 i = permute(permute(iy + ix) + ix + iy + permute(ix));
-
-        vec4 gx = fract(i * (1.0 / (20.0+31.0*sin(0.1*time)))) * 2.0 - 1.0 ;
-        vec4 gy = abs(gx) - 0.5 * sin(gx*time*0.1) ;
-        vec4 tx = floor(gx + 0.5);
-        gx = gx - tx;
-
-        vec2 g00 = vec2(gx.x,gy.x);
-        vec2 g10 = vec2(gx.y,gy.y);
-        vec2 g01 = vec2(gx.z,gy.z);
-        vec2 g11 = vec2(gx.w,gy.w);
-
-        vec4 norm = taylorInvSqrt(vec4(dot(g00, g00), dot(g01, g01), dot(g10, g10), dot(g11, g11)));
-        g00 *= norm.x;
-        g01 *= norm.y;
-        g10 *= norm.z;
-        g11 *= norm.w;
-
-        float n00 = dot(g00, vec2(fx.x, fy.x));
-        float n10 = dot(g10, vec2(fx.y, fy.y));
-        float n01 = dot(g01, vec2(fx.z, fy.z));
-        float n11 = dot(g11, vec2(fx.w, fy.w));
-
-        vec2 fade_xy = fadeEffect(Pf.xy);
-        vec2 n_x = mix(vec2(n00, n01), vec2(n10, n11), fade_xy.x);
-        float n_xy = mix(n_x.x, n_x.y, fade_xy.y);
-        return 1.3 * n_xy;
-        }
-
-
 
         void main() {
-        ivec2 texel_coord = ivec2(gl_GlobalInvocationID.xy);
+            ivec2 texel_coord = ivec2(gl_GlobalInvocationID.xy);
 
-        // Base color change on position
-        float base_red = float(texel_coord.x) / (gl_NumWorkGroups.x);
-        float base_green = float(texel_coord.y) / (gl_NumWorkGroups.y);
+            // Normalized pixel coordinates (from 0 to 1)
+            vec2 uv = (vec2(texel_coord) - 0.5 * resolution) / resolution.y;
+            vec3 col = vec3(0);
+            float t = time * 0.05; // Adjust the time factor for faster animation
 
-        // Modulate color based on time
-        float time_red = (sin(time) + 1.0) ;  // Oscillates between 0 and 1
-        float time_green = (cos(time) + 1.0) ;  // Oscillates between 0 and 1
+            vec2 n = vec2(0);
+            vec2 q = vec2(0);
+            vec2 p = uv;
+            float d = dot(p, p);
+            float S = 12.0;
+            float a = 0.0;
+            mat2 m = rotate2D(5.);
 
-        float noise = pnoise(vec2(time_red,time_green),vec2(base_red,base_green));
-        float noise1 = pnoise(vec2(time_red,time_green),vec2(time_green,time_red));
+            for (float j = 0.; j < 20.; j++) {
+                p *= m;
+                n *= m;
+                q = p * S + t * 4. + sin(t * 4. - d * 6.) * 0.8 + j + n;
+                a += dot(cos(q) / S, vec2(0.2));
+                n -= sin(q);
+                S *= 1.2;
+            }
 
-        noise = cnoise(vec2(noise1,noise));      
-        vec2 rg = vec2(time_red,time_green)*noise + vec2(time_red,time_green)*noise1 ;
+            col = vec3(4, 2, 1) * (a + 0.2) + a + a - d;
 
-        // Combine the position-based color with the time-based modulation
-        //vec4 value = vec4(base_red * time_red, base_green * time_green, 0.0, 1.0);
-        vec4 value = vec4(rg * vec2(time_red,time_green), 0.0, 1.0);
-
-        imageStore(img_output, texel_coord, value);
+            // Store the result in the image
+            imageStore(img_output, texel_coord, vec4(col, 1.0));
         }
+
+
+    """
+    elif emotion == 'Neutral':
+        _compute_source = """#version 430 core
+        //adapted from https://glslsandbox.com/e#107674.0
+        layout (local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+
+        layout(rgba32f) uniform image2D img_output;
+        uniform float time;
+        uniform vec2 resolution;
+
+        mat2 rotate2D(float r) {
+            return mat2(cos(r), sin(r), -sin(r), cos(r));
+        }
+
+        void main() {
+            ivec2 texel_coord = ivec2(gl_GlobalInvocationID.xy);
+
+            // Normalized pixel coordinates (from 0 to 1)
+            vec2 uv = (vec2(texel_coord) - 0.5 * resolution) / resolution.y;
+            vec3 col = vec3(0);
+            float t = time * 0.5; // Adjust the time factor for faster animation
+
+            vec2 n = vec2(0);
+            vec2 q = vec2(0);
+            vec2 p = uv;
+            float d = dot(p, p);
+            float S = 50.0;
+            float a = 0.0;
+            mat2 m = rotate2D(5.);
+
+            // Adjust the thickness of the lines
+            float lineThickness = 0.1; // smaller value for thinner lines
+
+            for (float j = 0.; j < 2.; j++) {
+                p *= m;
+                n *= m;
+                q = p * S + t * 4. + sin(t * 4. - d * 6.) * 0.8 + j + n;
+                a += dot(cos(q) / (S * lineThickness), vec2(0.2));
+                n -= tan(q);
+                S *= 1.2;
+            }
+
+            // Underwater light blue effect
+            vec3 underwaterColor = vec3(0.2, 0.75, 1.0); // Very light blue
+            float underwaterEffect = 0.7; // Adjust for stronger or weaker effect
+
+            col = vec3(4, 2, 1) * (a + 0.2) + a + a - d;
+            col = mix(col, underwaterColor, underwaterEffect);
+
+            // Store the result in the image
+            imageStore(img_output, texel_coord, vec4(col, 1.0));
+        }
+
+        """
+    elif emotion == 'Anger':
+        _compute_source = """#version 430 core
+        //Adapted from https://glslsandbox.com/e#107933.1
+        layout (local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+
+        layout(rgba32f) uniform image2D img_output;
+        uniform float time;
+        uniform vec2 resolution;
+
+        // Basic Parameters
+        #define NSEGMENTS 100     	// Numbers of emitters to divide into segment
+        #define ENERGY_TOTAL 0.01   	// for normalizing the gradient of the display
+        #define USE_YMAG 1		// energy for each point is only the y component
+        #define WIDTH_TOTAL_PCT 0.8	// percentage width of the display to use for full length bar
+        #define ROT_FREQ_HZ		0.0
+
+        // Derived Parameters
+        #define PORTION (ENERGY_TOTAL/float(NSEGMENTS)) // initial energy contribution of each emitter
+
+        const float PI = 3.14;
+
+        mat2 rotationMatrix(float angle)
+        {
+            angle *= PI / 180.0;
+            float s = sin(angle), c = cos(angle);
+            return mat2( c, -s, 
+                        s,  c );
+        }
+
+        vec2 rotatedUnitVec(float angle)
+        {
+            return vec2(1.0,0.0) * rotationMatrix(angle);    
+        }
+
+        void main() {
+            ivec2 texel_coord = ivec2(gl_GlobalInvocationID.xy);
+
+            // normalize st for resolution of box, between 0.0-1.0
+            vec2 st = vec2(texel_coord) / resolution;
+            float bar_total_length = ((sin(1.14 * time) + 1.0) / 2.0) * WIDTH_TOTAL_PCT;
+
+            float seg_width = bar_total_length / float(NSEGMENTS);
+            float init_seg_offset = (seg_width / 2.0);
+            
+            float angle = ROT_FREQ_HZ * time * 360.0;
+            vec2 direction_vector = rotatedUnitVec(angle);
+            vec2 start_pos = vec2(0.5, 0.5) - (direction_vector * (bar_total_length / 2.0));
+
+            float mag = 0.0;
+            // total magnitude is the summed contribution of each emitter
+            for (int seg = 0; seg < NSEGMENTS; ++seg) {
+                vec2 emitter_pos = start_pos + (direction_vector * (init_seg_offset + seg_width * float(seg)));
+                vec2 r = st - emitter_pos;
+                float dist_squared = dot(r, r);
+                if (dist_squared > 0.0) {
+                    vec2 e = (normalize(r) / dist_squared) * PORTION;
+        #if USE_YMAG
+                    mag = mag + abs(e.y);
+        #else
+                    mag = mag + abs(length(e));
+        #endif
+                }
+            }
+            
+            // here we split up the total magnitude value into component colors
+            // to make the dynamic range more visible
+            float mag_upscaled = mag * 3.0;
+            float most_sig_comp = clamp(mag_upscaled, 2.0, 3.0) - 2.0;
+            float mid_sig_comp = clamp(mag_upscaled, 1.0, 2.0) - 1.0;
+            float least_sig_comp = clamp(mag_upscaled, 0.0, 1.0);
+            vec3 color = vec3(least_sig_comp, mid_sig_comp, most_sig_comp);
+
+            // Store the result in the image
+            imageStore(img_output, texel_coord, vec4(color, 1.0));
+        }
+                """
+        
+    else:
+        _compute_source = """
+        #version 430 core
+        layout (local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+
+        layout(rgba32f) uniform image2D img_output;
+        uniform float time;
+        uniform vec2 resolution;
+
+        // Function to generate random values
+        float rand(vec2 co) {
+            return fract(sin(dot(co.xy, vec2(12.9898, 78.233))) * 43758.5453);
+        }
+
+        void main() {
+            ivec2 texel_coord = ivec2(gl_GlobalInvocationID.xy);
+            vec2 uv = vec2(texel_coord) / resolution.xy;
+
+            // Glitch effect parameters
+            float glitchIntensity = abs(sin(time)); // Varies between 0 and 1 over time
+            float stripeWidth = 0.1; // Width of the glitch stripes
+            float noiseIntensity = (rand(uv + time) * glitchIntensity)/2; // Random noise intensity
+
+            // Calculate stripe pattern based on the y-coordinate
+            float stripes = step(0.5 + glitchIntensity * 0.5, fract(uv.y / stripeWidth));
+            
+            float stripes_x = step(0.5 + glitchIntensity * 0.5, fract(uv.x / stripeWidth));
+            
+            // Base color variation for glitch
+            vec3 colorShift = vec3(rand(uv + time), rand(uv - time), rand(uv * time));
+            
+            vec3 color = mix(vec3(1.0, 0.0, 0.0), vec3(0.0, 1.0, 0.0), stripes); 
+            
+            // Apply stripes and noise to the color
+            color = vec3(1.0, 1.0, 1.0) * stripes * stripes_x *noiseIntensity + colorShift * (1.0 - stripes);
+
+            // Output the final color with some transparency
+            imageStore(img_output, texel_coord, vec4(color, 0.5));
+        }
+
         """
 
     return _compute_source
@@ -643,13 +696,22 @@ def set_uniforms_for_shader(emotion, shader_program,args):
         shader_program['resolution'] = (float(window.width), float(window.height * 1.4))
         # shader_program['resolution'] = (2500.0,2500.0)
         shader_program['position'] = (window._mouse_x, window._mouse_y)
-        print(shader_program['position'])
+
 
     elif emotion == 'Anger':
+        start_time,window = args
+        shader_program['resolution'] = (float(window.width), float(window.height*1.4))
+        shader_program['time'] = float(time.time() - start_time)
+    
+    elif emotion == 'Neutral':
+        start_time,window = args
+        shader_program['time'] = float(time.time() - start_time)
         shader_program['resolution'] = (float(window.width), float(window.height))
+        
 
     else:
-        start_time = args
+        start_time,window = args
+        shader_program['resolution'] = (float(window.width), float(window.height))
         shader_program['time'] = float(time.time() - start_time)
 
 
@@ -682,8 +744,35 @@ def shader_on_draw(emotion,shader_program, compute_program, batch,window,args):
                                                      tex_coords=('f', tex.tex_coords))
 
 import time
+
+def return_args(emotion,start_time,window):
+    if emotion == 'Sad':
+            args = start_time
+
+    elif emotion == 'Happiness':
+        args = start_time
+
+    elif emotion == 'Fear':
+        args = (start_time,window)
+    
+    elif emotion == 'Surprise':
+        args = (start_time,window)
+    elif emotion == 'Anger':
+        args = (start_time,window)
+    elif emotion == 'Neutral':
+        args = (start_time,window)
+        
+    elif emotion == 'Disgust':
+        args = (start_time,window)
+
+    else:
+        args = (start_time,window)
+    
+    return args
+    
+
 if __name__ == '__main__':
-    emotion = 'Fear'
+    emotion = 'Ander'
     shader_program, compute_program = create_program(emotion)
     # Pyglet window setup
 
@@ -698,18 +787,8 @@ if __name__ == '__main__':
         window.clear()
         batch = pyglet.graphics.Batch()
         
-        if emotion == 'Sad':
-            args = start_time
-            print(args)
-
-        elif emotion == 'Happiness':
-            args = start_time
-
-        elif emotion == 'Fear':
-            args = (start_time,window)
-        else:
-            args = start_time
-
+        args = return_args(emotion,start_time,window)
+        
         shader_on_draw(emotion,shader_program, compute_program, batch,window,args)
 
         batch.draw()

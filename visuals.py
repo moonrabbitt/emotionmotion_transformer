@@ -123,7 +123,7 @@ def return_properties(emotion_vector, connection):
 
 # @profile
 def visualise_body(frame_data, emotion_vectors, max_x, max_y,window,start_time,frame_index):
-    print('visualising body')
+    # print('visualising body')
     # clear memory
     global limb_sprites
 
@@ -462,18 +462,8 @@ def visualise_body(frame_data, emotion_vectors, max_x, max_y,window,start_time,f
         background_batch = pyglet.graphics.Batch()
 
         # Background-----------------------------------------------------------------------------------------------
-        if dominant_emotion == 'Sad':
-            args = start_time
-            print(args)
-
-        elif dominant_emotion == 'Happiness':
-            args = start_time
-
-        elif dominant_emotion == 'Fear':
-            args = (start_time,window)
-        else:
-            args = start_time
-
+        args = glsl.return_args(dominant_emotion,start_time,window)
+        
         glsl.shader_on_draw(dominant_emotion, shader_program, program, background_batch,window,args)
 
         background_batch.draw()
@@ -634,7 +624,7 @@ if __name__ == '__main__':
     # emotion_labels = ['Anger', 'Disgust', 'Fear', 'Happiness', 'Neutral', 'Sad', 'Surprise']
 
     # happy emotion vector for testing
-    emotion_vectors = (torch.tensor([[0.0, 0.0, 0.0, 1.0, 0.0, 0.0,0.0]]), torch.tensor([[0.0, 0.0, 0.0, 0.0, 0.0, 1.0,0.0]]))
+    emotion_vectors = (torch.tensor([[0.0, 0.0, 0.0, 1.0, 0.0, 0.0,0.0]]), torch.tensor([[1.0, 0.0, 0.0, 0.0, 0.0, 0.0,0.0]]))
 
 
 
@@ -646,7 +636,7 @@ if __name__ == '__main__':
             visualise_body(frame_data, emotion_vectors, max_x, max_y, window, start_time, frame_index)  # Visualize it
 
             frame_index += 1
-            print(frame_index)
+            # print(frame_index)
 
         else:
             pyglet.app.exit()

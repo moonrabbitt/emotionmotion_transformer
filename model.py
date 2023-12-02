@@ -1127,7 +1127,7 @@ def main(args = None):
         
     unnorm_out = unnormalise_list_2D(generated_keypoints, max_x, min_x, max_y, min_y,max_x, min_x, max_y, min_y)
     # Example Usage
-    max_movement = 200  # Maximum allowed movement per step
+    max_movement = 100  # Maximum allowed movement per step
     smoothed_keypoints = smooth_generated_sequence_with_cap(torch.tensor(unnorm_out, device=device), max_movement)
     # unnorm_out = unnormalise_list_2D(xb, max_x, min_x, max_y, min_y,max_x, min_x, max_y, min_y)
     
@@ -1136,7 +1136,7 @@ def main(args = None):
         
         emotion_vectors = (emotion_in[i],generated_emotion[i])
         frame = int(random.randrange(len(batch))) #only feed 1 frame in for visualisation
-        visualise_skeleton(batch, max_x, max_y,emotion_vectors, max_frames=FRAMES_GENERATE,save = True,save_path=None,prefix=f'{EPOCHS}_mdnsample_dyanmic_emotion_indv_noneutral_red_noise',train_seed=train_seed,delta=False)
+        visualise_skeleton(batch, max_x, max_y,emotion_vectors, max_frames=500,save = True,save_path=None,prefix=f'{EPOCHS}_mdnsample_dyanmic_emotion_indv_noneutral_red_noise',train_seed=train_seed,delta=False)
         # visualise_skeleton(batch, max_x, max_y,emotion_vectors, max_frames=FRAMES_GENERATE,save = True,save_path=None,prefix=f'adam_{EPOCHS}_delta',train_seed=train_seed,delta=True)
 
 
