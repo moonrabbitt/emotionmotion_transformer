@@ -148,27 +148,80 @@ def select_shader(emotion):
 
     elif emotion == 'Happiness':
         _compute_source = """#version 430 core
+        // adapted from: https://glslsandbox.com/e#107525.0
         layout (local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
 
         layout(rgba32f) uniform image2D img_output;
         uniform float time;
+        uniform vec2 resolution;
+
+        #define TAU 6.28318530718
+        const vec3 BackColor = vec3(135, 206, 235) / 255.0;  // Sky blue background
+        const vec3 PastelBlue = vec3(173, 216, 230) / 255.0;  // Light pastel blue
+        const vec3 PastelPink = vec3(255, 182, 193) / 255.0;  // Light pastel pink
+
+
+        float Func(float pX) {
+            return 0.6 * (0.5 * sin(0.1 * pX) + 0.5 * sin(0.553 * pX) + 0.7 * sin(1.2 * pX));
+        }
+
+        float FuncR(float pX) {
+            return 0.5 + 0.25 * (1.0 + sin(mod(40.0 * pX, TAU)));
+        }
+
+        float Layer(vec2 pQ, float pT) {
+            vec2 Qt = 3.5 * pQ;
+            pT *= 0.5;
+            Qt.x += pT;
+
+            float Xi = floor(Qt.x);
+            float Xf = Qt.x - Xi -0.5;
+
+            vec2 C;
+            float Yi;
+            float D = 1.0 - step(Qt.y, Func(Qt.x));
+
+            // Disk:
+            Yi = Func(Xi + 0.5);
+            C = vec2(Xf, Qt.y - Yi);
+            D = min(D, length(C) - FuncR(Xi + pT / 80.0));
+
+            // Previous disk:
+            Yi = Func(Xi + 1.0 + 0.5);
+            C = vec2(Xf - 1.0, Qt.y - Yi);
+            D = min(D, length(C) - FuncR(Xi + 1.0 + pT / 80.0));
+
+            // Next Disk:
+            Yi = Func(Xi - 1.0 + 0.5);
+            C = vec2(Xf + 1.0, Qt.y - Yi);
+            D = min(D, length(C) - FuncR(Xi - 1.0 + pT / 80.0));
+
+            return min(1.0, D);
+        }
 
         void main() {
-        ivec2 texel_coord = ivec2(gl_GlobalInvocationID.xy);
+            ivec2 texel_coord = ivec2(gl_GlobalInvocationID.xy);
+            vec2 UV = 2.0 * (vec2(texel_coord) - resolution / 2.0) / min(resolution.x, resolution.y);
 
-        // Base color change on position
-        float base_red = float(texel_coord.x) / (gl_NumWorkGroups.x);
-        float base_green = float(texel_coord.y) / (gl_NumWorkGroups.y);
+            // Render:
+            vec3 Color = BackColor;
+            for (float J = 0.0; J <= 1.0; J += 0.2) {
+                // Cloud Layer:
+                float Lt = time * (0.5 + 1.0 * J) * (1.0 + 0.1 * sin(226.0 * J)) + 17.0 * J;
+                vec2 Lp = vec2(0.0, 0.3 + 1.5 * (J - 0.5));
+                float L = Layer(UV + Lp, Lt);
 
-        // Modulate color based on time
-        float time_red = (sin(time) + 1.0) / 2.0;  // Oscillates between 0 and 1
-        float time_green = (cos(time) + 1.0) / 2.0;  // Oscillates between 0 and 1
+                // Blur and color:
+                float Blur = 1.0 * (0.5 * abs(2.0 - 5.0 * J)) / (11.0 - 5.0 * J);
+                float V = mix(0.0, 1.0, 1.0 - smoothstep(0.0, 0.01 + 0.2 * Blur, L));
+                vec3 Lc = mix(PastelBlue, PastelPink, J);
 
-        // Combine the position-based color with the time-based modulation
-        vec4 value = vec4(base_red * time_red, base_green * time_green, 0.0, 1.0);
+                Color = mix(Color, Lc, V);
+            }
 
-        imageStore(img_output, texel_coord, value);
+            imageStore(img_output, texel_coord, vec4(Color, 1.0));
         }
+
         """
 
     elif emotion == 'Surprise':
@@ -622,6 +675,7 @@ def select_shader(emotion):
             imageStore(img_output, texel_coord, vec4(color, 1.0));
         }
                 """
+    
         
     else:
         _compute_source = """
@@ -674,8 +728,9 @@ def set_uniforms_for_shader(emotion, shader_program,args):
         shader_program['time'] = (time.time() - start_time)
 
     elif emotion == 'Happiness':
-        start_time = args
+        start_time,window = args
         current_time = (time.time() - start_time) * 0.6
+        shader_program['resolution'] = (float(window.width), float(window.height * 1.4))
         shader_program['time'] = current_time
 
     elif emotion == 'Surprise':
@@ -750,7 +805,7 @@ def return_args(emotion,start_time,window):
             args = start_time
 
     elif emotion == 'Happiness':
-        args = start_time
+        args = (start_time,window)
 
     elif emotion == 'Fear':
         args = (start_time,window)
@@ -772,7 +827,7 @@ def return_args(emotion,start_time,window):
     
 
 if __name__ == '__main__':
-    emotion = 'Ander'
+    emotion = 'Happiness'
     shader_program, compute_program = create_program(emotion)
     # Pyglet window setup
 

@@ -595,7 +595,7 @@ if __name__ == '__main__':
     # emotion_labels = ['Anger', 'Disgust', 'Fear', 'Happiness', 'Neutral', 'Sad', 'Surprise']
 
     # happy emotion vector for testing
-    emotion_vectors = (torch.tensor([[0.0, 0.0, 0.0, 1.0, 0.0, 0.0,0.0]]), torch.tensor([[1.0, 0.0, 0.0, 0.0, 0.0, 0.0,0.0]]))
+    emotion_vectors = (torch.tensor([[0.0, 0.0, 0.0, 1.0, 0.0, 0.0,0.0]]), torch.tensor([[0.0, 0.0, 0.0, 1.0, 0.0, 0.0,0.0]]))
     
     global_load_images()
 
