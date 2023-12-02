@@ -585,6 +585,57 @@ def prep_data(dataset):
  
     return processed_data
 
+def cap_movements(frame1, frame2, max_movement):
+    """
+    Cap the movements between two frames.
+
+    :param frame1: First frame tensor [C]
+    :param frame2: Second frame tensor [C]
+    :param max_movement: Maximum allowed movement
+    :return: List of frames including capped intermediate frames
+    """
+    movement = frame2 - frame1
+    max_movement_per_component = movement.abs().max()
+    
+    if max_movement_per_component <= max_movement:
+        return [frame1, frame2]  # Movement is within the threshold
+
+    # Calculate the number of steps needed
+    num_steps = torch.ceil(max_movement_per_component / max_movement).int().item()
+    
+    # Generate intermediate frames
+    interpolated_frames = [frame1]
+    for step in range(1, num_steps):
+        step_frame = frame1 + (movement * (step / num_steps))
+        interpolated_frames.append(step_frame)
+
+    interpolated_frames.append(frame2)
+    return interpolated_frames
+
+def pad_sequence_to_length(sequence, length):
+    if len(sequence) < length:
+        padding = torch.zeros((length - len(sequence), *sequence[0].shape)).to(device)
+        sequence = torch.cat([sequence, padding])
+    return sequence
+
+def smooth_generated_sequence_with_cap(generated_sequence, max_movement):
+    B, T, C = generated_sequence.shape
+    smoothed_sequence = []
+    max_length = 0
+    for b in range(B):
+        batch_sequence = [generated_sequence[b, 0]]
+        for t in range(1, T):
+            capped_frames = cap_movements(generated_sequence[b, t - 1], generated_sequence[b, t], max_movement)
+            batch_sequence.extend(capped_frames[1:])  # Exclude the first frame to avoid duplicates
+        max_length = max(max_length, len(batch_sequence))
+        smoothed_sequence.append(torch.stack(batch_sequence))
+    
+    # Pad sequences to the same length
+    padded_sequence = [pad_sequence_to_length(seq, max_length) for seq in smoothed_sequence]
+    return torch.stack(padded_sequence).to(device)
+ 
+
+
 if __name__ == "__main__":
     print("Running data.py as main")
     prep_data("all")

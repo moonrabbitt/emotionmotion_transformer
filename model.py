@@ -318,7 +318,7 @@ class MotionModel(nn.Module):
         else:
             return logits,emotion_logits,loss,latent_vectors
     
-    def generate(self, inputs, emotions, max_new_tokens, block_size=16, USE_MDN=True):
+    def generate(self, inputs, emotions, max_new_tokens, block_size=16, USE_MDN=True,dampening_factor=0.998):
         generated_sequence = inputs
         generated_emotions = emotions
         MAX_VARIANCE = 1000.0
@@ -346,7 +346,8 @@ class MotionModel(nn.Module):
                 # next_values = mdn.sample(pi, sigma, mu, variance)
                 
                 # random sample - previous implementation
-  
+
+                next_values *= dampening_factor
 
                 generated_sequence = torch.cat([generated_sequence, next_values], dim=1)
 
@@ -1123,13 +1124,15 @@ def main(args = None):
     generated_keypoints,generated_emotion = m.generate(xb, emotion_in, FRAMES_GENERATE)
     # unnorm_out = unnormalise_list_2D(generated, max_x, min_x, max_y, min_y,max_dx, min_dx, max_dy, min_dy)
     
-    
         
     unnorm_out = unnormalise_list_2D(generated_keypoints, max_x, min_x, max_y, min_y,max_x, min_x, max_y, min_y)
+    # Example Usage
+    max_movement = 200  # Maximum allowed movement per step
+    smoothed_keypoints = smooth_generated_sequence_with_cap(torch.tensor(unnorm_out, device=device), max_movement)
     # unnorm_out = unnormalise_list_2D(xb, max_x, min_x, max_y, min_y,max_x, min_x, max_y, min_y)
     
     # visualise and save
-    for i,batch in enumerate(unnorm_out):
+    for i,batch in enumerate(smoothed_keypoints):
         
         emotion_vectors = (emotion_in[i],generated_emotion[i])
         frame = int(random.randrange(len(batch))) #only feed 1 frame in for visualisation
@@ -1157,7 +1160,7 @@ if __name__ == "__main__":
         DROPOUT=0.2,
         LEARNING_RATE=0.0001,
         EPOCHS=400000,
-        FRAMES_GENERATE=300,
+        FRAMES_GENERATE=30,
         TRAIN=False,
         EVAL_EVERY=1000,
         CHECKPOINT_PATH="checkpoints/proto10_checkpoint.pth",
