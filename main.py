@@ -304,9 +304,8 @@ def generate_new_batch(last_frame=None):
     max_movement = 100  # Maximum allowed movement per step
     max_length = 100
     unnorm_out =unnormalise_list_2D(detached_keypoints, max_x, min_x, max_y, min_y, max_x, min_x, max_y, min_y)
-    if init_flag == True:
+    if init_flag == False:
         smoothed_keypoints = smooth_generated_sequence_with_cap(torch.tensor(unnorm_out, device=device), max_movement, max_length)
-        init_flag = False
     else:
         smoothed_keypoints = unnorm_out
     
