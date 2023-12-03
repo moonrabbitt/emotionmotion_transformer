@@ -6,7 +6,7 @@ import queue
 from model import *
 import pytchat
 from data import *
-from visuals import visualise_body
+from visuals import visualise_body, global_load_images
 import pyglet
 
 # Use a pipeline as a high-level helper
@@ -101,10 +101,10 @@ args = argparse.Namespace(
         DROPOUT=0.2,
         LEARNING_RATE=0.0001,
         EPOCHS=30000,
-        FRAMES_GENERATE=50,
+        FRAMES_GENERATE=20,
         TRAIN=False,
         EVAL_EVERY=1000,
-        CHECKPOINT_PATH="checkpoints/proto10_checkpoint_scheduled.pth",
+        CHECKPOINT_PATH="checkpoints/proto10_checkpoint.pth",
         L1_LAMBDA=None,
         L2_REG=0.0,
         FINETUNE=False,
@@ -179,6 +179,8 @@ print('Loading model...')
 
 
 m, optimizer, scheduler, epoch, loss, train_seed = load_checkpoint(m, optimizer, args.CHECKPOINT_PATH,scheduler)
+
+
 
 try:
 
@@ -279,9 +281,11 @@ def process_chat_message(c):
 def generate_new_batch(last_frame=None):
     """Generate a new batch based on the current average scores."""
     # If initial_data is None or empty, initialize with default values
+    init_flag= False
     if last_frame is None:
         print('LAST FRAME IS NONE')
         last_frame = torch.randn(1,5, 50).to(device)  # initialise with noise
+        init_flag = True # First Frame
 
     last_frames = last_frame[0][-3:]
     norm_last_frames = normalise_generated(last_frames, max_x, min_x, max_y, min_y, max_x, min_x, max_y, min_y)
@@ -295,9 +299,20 @@ def generate_new_batch(last_frame=None):
     detached_emotion = generated_emotion.detach().cpu()
     
     emotion_vectors = (emotion_in, detached_emotion)
-    return unnormalise_list_2D(detached_keypoints, max_x, min_x, max_y, min_y, max_x, min_x, max_y, min_y), emotion_vectors
+    
+    # Example Usage
+    max_movement = 100  # Maximum allowed movement per step
+    max_length = 100
+    unnorm_out =unnormalise_list_2D(detached_keypoints, max_x, min_x, max_y, min_y, max_x, min_x, max_y, min_y)
+    if init_flag == True:
+        smoothed_keypoints = smooth_generated_sequence_with_cap(torch.tensor(unnorm_out, device=device), max_movement, max_length)
+        init_flag = False
+    else:
+        smoothed_keypoints = unnorm_out
+    
+    return smoothed_keypoints, emotion_vectors
 
-def generate_batches_periodically(queue, period=2, last_frame=None):
+def generate_batches_periodically(queue, period=5, last_frame=None):
     while True:
         time.sleep(period)
         unnorm_out, emotion_vectors = generate_new_batch(last_frame)
@@ -356,6 +371,7 @@ if __name__ == '__main__':
     
     # Create the Pyglet window
     window = pyglet.window.Window(int(max_x) + 50, int(max_y) + 50)
+    global_load_images()
     print('WINDOW CREATED')
     
     # Set up pyglet clock to call visualisation's update function periodically

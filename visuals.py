@@ -80,7 +80,7 @@ def load_shader(shader_file):
         shader_source = file.read()
     return pyglet.graphics.shader.Shader(shader_source, 'fragment')
 
-    return shader
+
 
 
 def return_properties(emotion_vector, connection):

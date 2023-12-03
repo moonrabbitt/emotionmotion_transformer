@@ -618,26 +618,34 @@ def pad_sequence_to_length(sequence, length):
         sequence = torch.cat([sequence, padding])
     return sequence
 
-def smooth_generated_sequence_with_cap(generated_sequence, max_movement):
+import torch
+
+def smooth_generated_sequence_with_cap(generated_sequence, max_movement, max_length=None):
     B, T, C = generated_sequence.shape
     print(f"Smoothing generated sequence with max movement {max_movement}...")
-    
+
     smoothed_sequence = []
-    max_length = 0
     for b in range(B):
         batch_sequence = [generated_sequence[b, 0]]
-        print(f"Length before smoothing for batch {b}: {len(batch_sequence)}")  # Length of the sequence before smoothing
+        print(f"Length before smoothing for batch {b}: {len(batch_sequence)}")
         for t in range(1, T):
             capped_frames = cap_movements(generated_sequence[b, t - 1], generated_sequence[b, t], max_movement)
             batch_sequence.extend(capped_frames[1:])  # Exclude the first frame to avoid duplicates
-        max_length = max(max_length, len(batch_sequence))
-        smoothed_sequence.append(torch.stack(batch_sequence))
+
+            # If max_length is specified and the batch_sequence length exceeds max_length, truncate it
+            if max_length is not None and len(batch_sequence) > max_length:
+                batch_sequence = batch_sequence[:max_length]
+                break
+
         print(f"Length of sequence after smoothing for batch {b}: {len(batch_sequence)}")
+        smoothed_sequence.append(torch.stack(batch_sequence))
+
+    # Determine the length for padding based on whether max_length is specified
+    padding_length = max_length if max_length is not None else max(len(seq) for seq in smoothed_sequence)
     
     # Pad sequences to the same length
-    padded_sequence = [pad_sequence_to_length(seq, max_length) for seq in smoothed_sequence]
+    padded_sequence = [pad_sequence_to_length(seq, padding_length) for seq in smoothed_sequence]
     return torch.stack(padded_sequence).to(device)
- 
 
 
 if __name__ == "__main__":
