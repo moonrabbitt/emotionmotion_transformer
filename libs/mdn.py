@@ -253,98 +253,85 @@ def sample_dynamic_emotion(pi, sigma, mu, emotion_logits, k=1.0, emotion_weight=
 
     return selected_samples
 
-def calculate_dynamic_emotion_scores_individual(last_frame, mu, sigma, emotion_logits, k, emotion_weight, neutral_index=4):
+def calculate_dynamic_emotion_scores_individual(last_frames, mu, sigma, emotion_logits, k, emotion_weight, neutral_index=4):
     """
-    Calculate scores for each keypoint of each Gaussian component based on dynamic movement, noise, and emotion.
+    Calculate individual scores for each keypoint of each Gaussian component based on dynamic movement, noise, and emotion.
     
-    Input is absolute coordinates
-
+    :param last_frames: Last frames in absolute coordinates [B, T, O]
     :param mu: Means of Gaussian components [B, T, G, O]
     :param sigma: Standard deviations of Gaussian components [B, T, G, O]
     :param emotion_logits: Emotion logits [B, Emotion_Categories]
     :param k: Weight for the noise component
     :param emotion_weight: Weight for the emotion component
-    :param neutral_index: Index of 'Neutral' in emotion logit
-    :return: A tensor of scores [B, T, G, O]
-    
-    pi - different pi values different types of the same emotion
-    sigma - variability or diversity
-    mu - central tendency - most typical pattern of motion for each component associated with emotion - avoid this
+    :param neutral_index: Index of 'Neutral' in emotion logits
+    :return: A tensor of individual scores for each keypoint [B, G, O]
     """
     B, T, G, O = mu.shape
-    # Prepare the reference for the first frame of mu
-    # Add an extra dimension for Gaussian components before expanding
-    last_frame_ref = last_frame.unsqueeze(1).unsqueeze(2).expand(B, 1, G, O)  # [B, 1, G, O] # Shape: [B, O, 1, O]
 
-    # Now expand it to match the dimensions of mu
-    last_frame_ref = last_frame_ref.expand(B, 1, G, O)  # Shape: [B, 1, G, O]
+    # Include an extra initial frame in mu for delta calculation
+    mu_context = mu[:, -T-1:-1, :, :].reshape(B, T * G, O)
+    prev_frames = mu[:, -T-2:-2, :, :].reshape(B, T * G, O)
 
-    
-    # Prepare the previous frames of mu for subtraction
-    prev_frames = torch.cat([last_frame_ref, mu[:, :-1, :, :]], dim=1)  # [B, T, G, O]
-    
-    deltas = mu - prev_frames  # [B, T, G, O]
+    # Calculate deltas (difference in position) for each keypoint
+    deltas = mu_context - prev_frames  # [B, context_frames * G, O]
 
-    # Movement score (dynamic movement)
-    movement_score = torch.sqrt(torch.sum(deltas**2, dim=3), )  # [B, T, G] # euclidean distance of motion between frames
+    # Movement score for each keypoint
+    movement_score = torch.sqrt(torch.sum(deltas**2, dim=2))  # [B, G, O]
 
-    # Noise penalty
-    noise_penalty = k * torch.sqrt(torch.sum(sigma**2, dim=3))  # [B, T, G]
+    # Noise penalty for each keypoint
+    noise_penalty = k * torch.sqrt(torch.sum(sigma[:, -1, :, :]**2, dim=2))  # [B, G, O]
 
-    # Emotion score (including penalizing 'Neutral' emotions)
-    neutral_score = emotion_logits[:, neutral_index].unsqueeze(1).unsqueeze(2).expand(-1, T, G)  # [B, T, G]
-    non_neutral_bonus = (1 - neutral_score)*emotion_weight # so movement changes a bit
-    dominant_emotion = emotion_logits.max(dim=1).values.unsqueeze(1).unsqueeze(2).expand(-1, T, G)  # [B, T, G]
+    # Emotion score calculation for each keypoint
+    neutral_score = emotion_logits[:, neutral_index].unsqueeze(1)  # [B, 1]
+    non_neutral_bonus = (1 - neutral_score) * emotion_weight
+    dominant_emotion = emotion_logits.max(dim=1).values.unsqueeze(1)  # [B, 1]
     emotion_score = dominant_emotion * non_neutral_bonus
-
-    # Expand the scores to have the same shape as mu and sigma for each keypoint
-    expanded_movement_score = movement_score.unsqueeze(-1).expand(-1, -1, -1, O)  # [B, T, G, O]
-    expanded_noise_penalty = noise_penalty.unsqueeze(-1).expand(-1, -1, -1, O)  # [B, T, G, O]
-    expanded_emotion_score = emotion_score.unsqueeze(-1).expand(-1, -1, -1, O)  # [B, T, G, O]
+    emotion_score_expanded = emotion_score.expand(-1, G, O)  # [B, G, O]
 
     # Final scores for each keypoint
-    scores = expanded_movement_score - expanded_noise_penalty + emotion_weight * expanded_emotion_score
+    scores = movement_score - noise_penalty + emotion_score_expanded
 
     return scores
 
 
-def sample_dynamic_emotion_individual(cond_sequence, pi, sigma, mu, emotion_logits, k=2.0, emotion_weight=2.0, variance_div=100):
-    """
-    Sample from the MDN focusing on individual keypoints with emotion awareness.
 
-    :param pi: Mixture component weights [B, T, G]
-    :param sigma: Standard deviations of mixture components [B, T, G, O]
-    :param mu: Means of mixture components [B, T, G, O]
+def sample_dynamic_emotion_individual(last_frames, pi, sigma, mu, emotion_logits, k=2.0, emotion_weight=2.0, variance_div=100):
+    """
+    Sample from the MDN focusing on individual keypoints with emotion awareness for the next frame.
+
+    :param last_frames: Last frames used as context [B, Context, O]
+    :param pi: Mixture component weights for the next frame [B, G]
+    :param sigma: Standard deviations of mixture components for the next frame [B, G, O]
+    :param mu: Means of mixture components for the next frame [B, G, O]
     :param emotion_logits: Emotion logits [B, Emotion_Categories]
     :param k: Weight for the noise component in scoring
     :param emotion_weight: Weight for the emotion component in scoring
-    :return: Sampled values [B, T, O]
+    :return: Sampled values for the next frame [B, O]
     """
     B, T, G, O = mu.shape
-    selected_samples = torch.zeros((B, T, O))
+    selected_samples = torch.zeros((B, O))
 
-    #  calculate_dynamic_emotion_scores_individual returns [B, T, G, O]
-    scores = calculate_dynamic_emotion_scores_individual(cond_sequence, mu, sigma, emotion_logits, k, emotion_weight)
+    # Calculate scores for the next frame using the last frames as context
+    scores = calculate_dynamic_emotion_scores_individual(last_frames, mu, sigma, emotion_logits, k, emotion_weight)
     # Combine scores with log of pi for each Gaussian component
     log_pi = torch.log(pi + 1e-10)  # Adding a small value to avoid log(0)
     combined_scores = scores + log_pi.unsqueeze(-1)  # Broadcasting to match dimensions
-    
+
     for o in range(O):
-        for t in range(T):
-            # Create a categorical distribution based on the combined scores
-            categorical_dist = Categorical(logits=combined_scores[:, t, :, o])
+        # Create a categorical distribution based on the combined scores for keypoint 'o'
+        categorical_dist = Categorical(logits=combined_scores[:, :, o])
 
-            # Probabilistically select a Gaussian component
-            selected_gaussian_idx_t_o = categorical_dist.sample()  # [B]
+        # Probabilistically select a Gaussian component for keypoint 'o'
+        selected_gaussian_idx_o = categorical_dist.sample()  # [B]
 
-            # Gather the parameters of the selected Gaussian component
-            idx_t_o = selected_gaussian_idx_t_o.unsqueeze(-1)  # [B, 1]
-            selected_mu_t_o = torch.gather(mu[:, t, :, o], 1, idx_t_o).squeeze(1)  # [B]
-            selected_sigma_t_o = torch.gather(sigma[:, t, :, o], 1, idx_t_o).squeeze(1) / variance_div
+        # Gather the parameters of the selected Gaussian component for keypoint 'o'
+        idx_o = selected_gaussian_idx_o.unsqueeze(-1)  # [B, 1]
+        selected_mu_o = torch.gather(mu[:, :, o], 1, idx_o).squeeze(1)  # [B]
+        selected_sigma_o = torch.gather(sigma[:, :, o], 1, idx_o).squeeze(1) / variance_div
 
-            # Sample from the selected Gaussian component for keypoint 'o' at time 't'
-            normal_dist = Normal(selected_mu_t_o, selected_sigma_t_o)
-            selected_samples[:, t, o] = normal_dist.sample()
+        # Sample from the selected Gaussian component for keypoint 'o'
+        normal_dist = Normal(selected_mu_o, selected_sigma_o)
+        selected_samples[:, o] = normal_dist.sample()
 
     return selected_samples.to(device)
 

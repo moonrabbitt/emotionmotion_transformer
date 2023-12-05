@@ -130,6 +130,9 @@ def visualise_body(frame_data, emotion_vectors, max_x, max_y,window,start_time,f
     # print('visualising body')
     # clear memory
     global limb_sprites
+    
+    print(emotion_vectors)
+    print(frame_index)
 
     clear_sprites()
     # Preprocess-------------------------------------------------------------------------------------------------------------------

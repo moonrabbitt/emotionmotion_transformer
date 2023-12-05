@@ -336,14 +336,14 @@ class MotionModel(nn.Module):
                 pi, sigma, mu, logits, emotion_logits, _, _ = self(inputs=cond_sequence, emotions=generated_emotions)
 
                 # CHANGE: Instead of random sampling, use the mean of the most probable component
+                # next_values = mdn.sample(pi, sigma, mu, variance)
                 # next_values = mdn.max_sample(pi, sigma, mu)
                 # next_values = mdn.select_sample(pi, sigma, mu)
         
                 # next_values = mdn.sample_dynamic_emotion(pi, sigma, mu, emotion_logits, k=1.0, emotion_weight=1.0)
                 emotion_weight = (1+ (math.cos(normalized_index)))
-                last_frame = cond_sequence[:, -1, :]  # Get the last frame from the cond sequence
-                next_values = mdn.sample_dynamic_emotion_individual(last_frame, pi, sigma, mu, emotion_logits, k=2.0, emotion_weight=emotion_weight)
-                # next_values = mdn.sample(pi, sigma, mu, variance)
+                next_values = mdn.sample_dynamic_emotion_individual(cond_sequence, pi, sigma, mu, emotion_logits, k=2.0, emotion_weight=emotion_weight)
+                
                 
                 # random sample - previous implementation
 
@@ -353,7 +353,7 @@ class MotionModel(nn.Module):
 
             else:
                 logits, emotion_logits, _, _ = self(inputs=cond_sequence, emotions=generated_emotions)
-                next_values = logits[:, -1, :]  # get the last token from the logits
+                next_values = logits[:, -1, :]  # get the last token from the logits- returned context input + next prediction [B,T1 to T+1,O] - next context window
                 generated_sequence = torch.cat([generated_sequence, next_values.unsqueeze(1)], dim=1)
 
             generated_emotions = emotion_logits

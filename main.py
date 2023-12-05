@@ -11,14 +11,10 @@ import pyglet
 
 # Use a pipeline as a high-level helper
 from transformers import pipeline
-
-
-pipe = pipeline("text-classification", model="michellejieli/emotion_text_classifier")
 # Load model directly
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
+# Functions
 
-tokenizer = AutoTokenizer.from_pretrained("michellejieli/emotion_text_classifier")
-model = AutoModelForSequenceClassification.from_pretrained("michellejieli/emotion_text_classifier")
 
 # Define a function to set global variables
 def set_globals(args):
@@ -45,27 +41,7 @@ def set_globals(args):
     PATIENCE = args.PATIENCE
     
     # ---------------------------------
-    notes = f"""Proto8 - trying to adapt Pette et al 2019, addign latent visualisation and analysing latent space. Might be slow, maybe take this out when live.
-
-    
-    Added MDN layer to model.
-    
-    All data, added 10% noise to emotions so model is less stuck. With LeakyRelu
-    Loss = mse_loss(keypoints) + mse_loss(emotions) because before output emotions ( which feature was added to keypoint features) were not being matched to input emotions
-    No penalty.
-
-    Added dropout to keypoints, also changed input to emotion linear to x and not just emotion (emotion + keypoints)
-    Taking extra dropout for emotions and keypoints out, because want model to rely on both equally so what's the point
-
-    dropout keypoints and dropout emotion is currently equal but might change this.
-
-    Emotions and keypoints are multimodal and added separately, but features are added in block processing using +.
-
-
-    Got rid of both L1 and L2, increasing dropout because model acting weird, this is now delta + coord. 
-    Delta is between next frame and current frame. So current frame is previous coord+previous delta. Last frame's delta is 0. 
-    
-    {BATCH_SIZE} batch size, {BLOCK_SIZE} block size, {DROPOUT} dropout, {LEARNING_RATE} learning rate, {EPOCHS} epochs, {FRAMES_GENERATE} frames generated, {TRAIN} train, {EVAL_EVERY} eval every, {CHECKPOINT_PATH} checkpoint path, {L1_LAMBDA} L1 lambda, {L2_REG} L2 reg"""
+    notes = f"""main"""
     # ---------------------------------
     
     # Print the values using f-string for formatting
@@ -90,11 +66,14 @@ def set_globals(args):
     Dataset set to: {DATASET}
     Patience: {PATIENCE}
     """)
+
+pipe = pipeline("text-classification", model="michellejieli/emotion_text_classifier")
+
+
+tokenizer = AutoTokenizer.from_pretrained("michellejieli/emotion_text_classifier")
+model = AutoModelForSequenceClassification.from_pretrained("michellejieli/emotion_text_classifier")
     
-
 # initialise model------------------------------------------------------------
-
-
 args = argparse.Namespace(
         BATCH_SIZE=8,
         BLOCK_SIZE=16,
@@ -117,43 +96,9 @@ args = argparse.Namespace(
         DATASET = "all",
         
         # NOTES---------------------------------
-        notes = f"""Proto8 - # Define  MDN loss scheduling parameters - 
-         # Define  MDN loss scheduling parameters
-         linear rate increase
-            
-        trying to adapt Pette et al 2019, addign latent visualisation and analysing latent space. Might be slow, maybe take this out when live.
-        
-        Added MDN to increase variance of output as Bishop et al 1994. and Alemi et al 2017.
-        
-        Scheduling MDN weight to increase over time for loss so that mse loss has better chance of converging first because otherwise MDN loss is overpowering it.
-        Currently linear function but maybe change this to exponential. 
-        
-        Updated loss to loss = F.mse_loss(logits, targets) + (F.mse_loss(emotion_logits, emotions)) + mdn.mdn_loss(pi, sigma, mu, targets)
-        see if that will help with noise
-        
-        
-        convert from random sampling MDN to find the index of the most probable Gaussian component hopefully will lead to smoother outputs
-        
-        adjusted sampling to /100 of sigma, hopefully will lead to smoother outputs
-        
-        all data
-
-        All data, added 10% noise to emotions so model is less stuck. With LeakyRelu
-        Loss = mse_loss(keypoints) + mse_loss(emotions) because before output emotions ( which feature was added to keypoint features) were not being matched to input emotions
-        No penalty.
-
-        Added dropout to keypoints, also changed input to emotion linear to x and not just emotion (emotion + keypoints)
-        Taking extra dropout for emotions and keypoints out, because want model to rely on both equally so what's the point
-
-        dropout keypoints and dropout emotion is currently equal but might change this.
-
-        Emotions and keypoints are multimodal and added separately, but features are added in block processing using +.
-
-
-        Got rid of both L1 and L2, increasing dropout because model acting weird, this is now delta + coord. 
-        Delta is between next frame and current frame. So current frame is previous coord+previous delta. Last frame's delta is 0. 
-        """
+        notes = f"""main.py"""
     )
+# Initialising ------------------------------------------------------------
 # If args are provided, use those; otherwise, parse from command line
 if args is None:
     args = parse_args()
@@ -177,9 +122,7 @@ scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=3, ver
 # Load the model
 print('Loading model...')
 
-
 m, optimizer, scheduler, epoch, loss, train_seed = load_checkpoint(m, optimizer, args.CHECKPOINT_PATH,scheduler)
-
 
 
 try:
@@ -197,7 +140,7 @@ try:
 except TypeError:
     print(f"Model {train_seed} loaded from {CHECKPOINT_PATH} (epoch {epoch}, total loss: {loss:.6f})")
 
-# Functions
+    
 def normalise_generated(unnorm_out, max_x, min_x, max_y, min_y, max_dx, min_dx, max_dy, min_dy,scale=1.5): 
     norm_out = []
     
@@ -237,7 +180,6 @@ emotion_labels = ['anger', 'disgust', 'fear', 'joy', 'neutral', 'sadness', 'surp
 emotion_data = {emotion: {"score": 0.0, "count": 0} for emotion in emotion_labels}
 
 chat = pytchat.create(video_id="gCNeDWCI0vo")
-FRAMES_GENERATE = 150
 terminate_threads = False
 
 # This queue will hold the batches ready for visualization
@@ -311,14 +253,15 @@ def generate_new_batch(last_frame=None):
     
     return smoothed_keypoints, emotion_vectors
 
-def generate_batches_periodically(queue, period=5, last_frame=None):
+def generate_batches_periodically(queue, period=5, last_frames=None):
     while True:
         time.sleep(period)
-        unnorm_out, emotion_vectors = generate_new_batch(last_frame)
+        unnorm_out, emotion_vectors = generate_new_batch(last_frames)
         print('GENERATED BATCH PUTTING IN QUEUE')
         for frame in tqdm(unnorm_out[0]):
             queue.put((frame, emotion_vectors))
-        last_frame = unnorm_out
+        print(last_frames)
+        last_frames = unnorm_out
         
 # Function to update the visualisation
 def clear_sprites():
@@ -364,7 +307,7 @@ def chat_process(terminate_event):
             # Update viz_queue or other shared resources as needed
         
 if __name__ == '__main__':
-    
+
     # Shared event to signal termination
     terminate_event = multiprocessing.Event()
     

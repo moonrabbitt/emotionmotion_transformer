@@ -638,6 +638,11 @@ def smooth_generated_sequence_with_cap(generated_sequence, max_movement, max_len
                 break
 
         print(f"Length of sequence after smoothing for batch {b}: {len(batch_sequence)}")
+        
+        # Ensure each sequence in smoothed_sequence is truncated to max_length
+        if max_length is not None and len(batch_sequence) > max_length:
+            batch_sequence = batch_sequence[:max_length]
+        
         smoothed_sequence.append(torch.stack(batch_sequence))
 
     # Determine the length for padding based on whether max_length is specified
@@ -646,6 +651,7 @@ def smooth_generated_sequence_with_cap(generated_sequence, max_movement, max_len
     # Pad sequences to the same length
     padded_sequence = [pad_sequence_to_length(seq, padding_length) for seq in smoothed_sequence]
     return torch.stack(padded_sequence).to(device)
+
 
 
 if __name__ == "__main__":
