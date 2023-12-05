@@ -343,6 +343,7 @@ class MotionModel(nn.Module):
                 # next_values = mdn.sample_dynamic_emotion(pi, sigma, mu, emotion_logits, k=1.0, emotion_weight=1.0)
                 emotion_weight = (1+ (math.cos(normalized_index)))
                 next_values = mdn.sample_dynamic_emotion_individual(cond_sequence, pi, sigma, mu, emotion_logits, k=2.0, emotion_weight=emotion_weight)
+                next_values = next_values.unsqueeze(1)  # Add a time dimension of 1
                 
                 
                 # random sample - previous implementation
@@ -1121,7 +1122,7 @@ def main(args = None):
     random_indices = torch.randint(0, T, (B,))
     xb_random_frame = xb[torch.arange(B), random_indices].unsqueeze(1) 
     # generated_keypoints,generated_emotion = m.generate(xb_random_frame, emotion_in, FRAMES_GENERATE)
-    generated_keypoints,generated_emotion = m.generate(xb, emotion_in, FRAMES_GENERATE)
+    generated_keypoints,generated_emotion = m.generate(xb, emotion_in, FRAMES_GENERATE, USE_MDN=USE_MDN)
     # unnorm_out = unnormalise_list_2D(generated, max_x, min_x, max_y, min_y,max_dx, min_dx, max_dy, min_dy)
     
         
@@ -1161,7 +1162,7 @@ if __name__ == "__main__":
         DROPOUT=0.2,
         LEARNING_RATE=0.0001,
         EPOCHS=400000,
-        FRAMES_GENERATE=30,
+        FRAMES_GENERATE=300,
         TRAIN=False,
         EVAL_EVERY=1000,
         CHECKPOINT_PATH="checkpoints/proto10_checkpoint.pth",
