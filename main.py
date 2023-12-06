@@ -80,7 +80,7 @@ args = argparse.Namespace(
         DROPOUT=0.2,
         LEARNING_RATE=0.0001,
         EPOCHS=30000,
-        FRAMES_GENERATE=35,
+        FRAMES_GENERATE=200,
         TRAIN=False,
         EVAL_EVERY=1000,
         CHECKPOINT_PATH="checkpoints/proto10_checkpoint.pth",
@@ -244,7 +244,7 @@ def generate_new_batch(last_frame=None):
     
     # Example Usage
     max_movement = 100  # Maximum allowed movement per step
-    max_length = 200
+    max_length = 300
     unnorm_out =unnormalise_list_2D(detached_keypoints, max_x, min_x, max_y, min_y, max_x, min_x, max_y, min_y)
     if init_flag == False:
         # not first frame
@@ -262,7 +262,7 @@ def generate_new_batch(last_frame=None):
     print(init_flag)
     return smoothed_keypoints, emotion_vectors
 
-def generate_batches_periodically(queue, period=5, last_frames=None):
+def generate_batches_periodically(queue, period=2, last_frames=None):
     while True:
         time.sleep(period)
         unnorm_out, emotion_vectors = generate_new_batch(last_frames)

@@ -83,22 +83,31 @@ def load_shader(shader_file):
 
 
 
-def return_properties(emotion_vector, connection):
+import random
+import glob
 
+def return_properties(emotion_vector, connection):
     emotion_labels = ['Anger', 'Disgust', 'Fear', 'Happiness', 'Neutral', 'Sad', 'Surprise']
 
     # Ensure the emotion_vector is the same length as emotion_labels
     if len(emotion_vector) != len(emotion_labels):
         raise ValueError("Length of emotion_vector must match the number of emotion_labels")
 
-    # Choose an emotion based on the normalized dominance values (probabilities)
-    chosen_emotion = random.choices(emotion_labels, weights=emotion_vector, k=1)[0]
+    # Identify the dominant emotion
+    dominant_emotion_index = emotion_vector.index(max(emotion_vector))
 
-    
+    # Adjust the probabilities
+    for i in range(len(emotion_vector)):
+        if i == dominant_emotion_index:
+            emotion_vector[i] = 0.95  # 90% probability for the dominant emotion
+        else:
+            emotion_vector[i] = 0.05 / (len(emotion_vector) - 1)  # Distribute the remaining 10%
+
+    # Choose an emotion based on the updated probabilities
+    chosen_emotion = random.choices(emotion_labels, weights=emotion_vector, k=1)[0]
 
     # Construct the file path
     try:
-        # Join the connection names into a single string
         connection_path = '_'.join(connection)
         file_path = f'D:\\Interactive Dance Thesis Tests\\visualisations\\{chosen_emotion}_NORM\\{connection_path}\\*'
         path = random.choice(glob.glob(file_path))
@@ -106,8 +115,8 @@ def return_properties(emotion_vector, connection):
         connection_path = '_'.join(connection[::-1])
         file_path = f'D:\\Interactive Dance Thesis Tests\\visualisations\\{chosen_emotion}_NORM\\{connection_path}\\*'
         path = random.choice(glob.glob(file_path))
-    
 
+    # Set the scale based on the chosen emotion
     scale = 1.0
     if chosen_emotion == 'Happiness':
         scale = 1.0
@@ -119,7 +128,6 @@ def return_properties(emotion_vector, connection):
         scale = 1.2
     else:
         scale = 1.0
-
 
     return path, scale
 
@@ -614,7 +622,7 @@ if __name__ == '__main__':
         else:
             pyglet.app.exit()
 
-    pyglet.clock.schedule_interval(update, 0.05)  # Adjust interval as needed
+    pyglet.clock.schedule_interval(update, 0.1)  # Adjust interval as needed
 
     # Required in global scope ----------------------------------------
 

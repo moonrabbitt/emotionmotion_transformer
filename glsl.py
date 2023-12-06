@@ -827,7 +827,7 @@ def return_args(emotion,start_time,window):
     
 
 if __name__ == '__main__':
-    emotion = 'Happiness'
+    emotion = 'Sad'
     shader_program, compute_program = create_program(emotion)
     # Pyglet window setup
 
