@@ -99,9 +99,9 @@ def return_properties(emotion_vector, connection):
     # Adjust the probabilities
     for i in range(len(emotion_vector)):
         if i == dominant_emotion_index:
-            emotion_vector[i] = 0.95  # 90% probability for the dominant emotion
+            emotion_vector[i] = 0.99  # 99% probability for the dominant emotion
         else:
-            emotion_vector[i] = 0.05 / (len(emotion_vector) - 1)  # Distribute the remaining 10%
+            emotion_vector[i] = 0.01 / (len(emotion_vector) - 1)  # Distribute the remaining 1%
 
     # Choose an emotion based on the updated probabilities
     chosen_emotion = random.choices(emotion_labels, weights=emotion_vector, k=1)[0]
@@ -145,8 +145,9 @@ def visualise_body(frame_data, emotion_vectors, max_x, max_y,window,start_time,f
     global limb_sprites
     global scale
     
-    print(emotion_vectors)
-    print(frame_index)
+    
+    # print(emotion_vectors)
+    # print(frame_index)
 
     clear_sprites()
     # Preprocess-------------------------------------------------------------------------------------------------------------------
@@ -393,7 +394,6 @@ def visualise_body(frame_data, emotion_vectors, max_x, max_y,window,start_time,f
                     sprite.scale = 0.3*scale
                     limb = (1,0) #neck,nose
 
-
                 elif limb == (keypointsMapping.index('L-Eye'),): # L-Eye
                     sprite.width = eye_width
                     sprite.height = eye_height*2
@@ -409,7 +409,10 @@ def visualise_body(frame_data, emotion_vectors, max_x, max_y,window,start_time,f
                         if not is_blinking:
                             sprite.width = eye_width
                             sprite.height = sprite.width
-                            sprite.scale = 0.01*scale
+                            if dominant_emotion == 'Surprise':
+                                sprite.scale = 1.5
+                            else:
+                                sprite.scale = 0.01*scale
                             limb = (15,)
                         else:
                             continue
@@ -422,7 +425,10 @@ def visualise_body(frame_data, emotion_vectors, max_x, max_y,window,start_time,f
                         if not is_blinking:
                             sprite.width = eye_width
                             sprite.height = sprite.width
-                            sprite.scale = 0.01*scale
+                            if dominant_emotion == 'Surprise':
+                                sprite.scale = 1.5
+                            else:
+                                sprite.scale = 0.01*scale
                             limb = (16,)
                         else:
                             continue
@@ -454,18 +460,26 @@ def visualise_body(frame_data, emotion_vectors, max_x, max_y,window,start_time,f
                     sprite.scale = 0.3*scale
 
 
-                if len(limb) > 1:
+                if len(limb) > 1: #Head  limb = (1,0) #neck,nose
+                    
+                    nose_y = max_y - frame_data[limb[1] * 2 + 1]
+                    neck_y = max_y - frame_data[limb[0] * 2 + 1]
+                    
+                    if nose_y < neck_y:
+                        nose_y = neck_y+10
+                    
                     # Find midpoint between neck and nose
                     mid_x = (frame_data[limb[0] * 2] + frame_data[limb[1] * 2]) / 2
                     mid_y = max_y - (frame_data[limb[0] * 2 + 1] + frame_data[limb[1] * 2 + 1]) / 2
 
                     # Calculate the 1/4 position below the nose
-                    nose_y = max_y - frame_data[limb[1] * 2 + 1]
+                    
                     quarter_below_nose = nose_y + (nose_y - mid_y) / 4
 
                     # Adjust sprite position
                     sprite.x = mid_x
                     sprite.y = quarter_below_nose
+             
                 else:
                     sprite.x, sprite.y = frame_data[limb[0] * 2], max_y - frame_data[limb[0] * 2 + 1]
 
@@ -495,9 +509,10 @@ def visualise_body(frame_data, emotion_vectors, max_x, max_y,window,start_time,f
         window.clear()
 
         background_batch = pyglet.graphics.Batch()
-
+        
+        head_position = (frame_data[0],frame_data[2])
         # Background-----------------------------------------------------------------------------------------------
-        args = glsl.return_args(dominant_emotion,start_time,window)
+        args = glsl.return_args(dominant_emotion,start_time,window,head_position)
         
         glsl.shader_on_draw(dominant_emotion, shader_program, program, background_batch,window,args)
 
@@ -506,34 +521,6 @@ def visualise_body(frame_data, emotion_vectors, max_x, max_y,window,start_time,f
         # Sprite -----------------------------------------------------------------------------------------------
 
         draw_frame(frame_data)
-
-
-
-
-        # -----------------------------------------------------------------------------------------------
-
-        # Overlay effects -----------------------------------------------------------------------------------------------
-
-        # foreground = pyglet.graphics.Batch()
-
-        # overlay_tex = pyglet.image.Texture.create(window.width, window.height, internalformat=GL_RGBA32F)
-        # overlay_tex.bind_image_texture(unit=overlay_program.uniforms['img_output'].location)
-
-        # overlay_program['resolution'] = (window.width, window.height)
-        # overlay_program['time'] = current_time
-
-        # with overlay_program:
-        #     overlay_program.dispatch(overlay_tex.width, overlay_tex.height, 1, barrier=GL_ALL_BARRIER_BITS)
-
-        # overlay_group = RenderGroup(overlay_tex, overlay_shader_program)
-        # indices = (0, 1, 2, 0, 2, 3)
-        # vertex_positions = create_quad(0, 0, overlay_tex)
-
-        # overlay_vertex_list = overlay_shader_program.vertex_list_indexed(4, GL_TRIANGLES, indices, foreground, overlay_group,
-        #                                                 position=('f', vertex_positions),
-        #                                                 tex_coords=('f', overlay_tex.tex_coords))
-
-        # foreground.draw()
 
 
         # Load the emotion vectors-------------------------------------------------------------------------------------------------------------------
@@ -606,7 +593,7 @@ if __name__ == '__main__':
     # emotion_labels = ['Anger', 'Disgust', 'Fear', 'Happiness', 'Neutral', 'Sad', 'Surprise']
 
     # happy emotion vector for testing
-    emotion_vectors = (torch.tensor([[0.0, 0.0, 0.0, 1.0, 0.0, 0.0,0.0]]), torch.tensor([[1.0, 1.0, 1.0, 1.0, 1.0, 1.0,1.0]]))
+    emotion_vectors = (torch.tensor([[0.0, 0.0, 0.0, 1.0, 0.0, 0.0,0.0]]), torch.tensor([[0.0, 0.0, 0.0, 0.0, 0.0, 0.0,1.0]]))
     
     global_load_images()
 

@@ -715,6 +715,7 @@ def sanity_check(keypoints):
     def check_ear_above_neck(ear, neck, eye):
         return (ear[1] < neck[1] or (ear[1] >= neck[1] and eye[1] >= neck[1])) and ear != (0, 0) and neck != (0, 0) and eye != (0, 0)
     
+    
     # Define a list of check functions for each keypoint.
     # If no specific check is needed, use None.
     check_functions = [None] * 25

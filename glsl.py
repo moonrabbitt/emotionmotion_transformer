@@ -226,135 +226,27 @@ def select_shader(emotion):
 
     elif emotion == 'Surprise':
         _compute_source = """#version 430 core
-        // adapted from https://github.com/genekogan/Processing-Shader-Examples/blob/master/ColorShaders/data/rain.glsl
         layout (local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
 
         layout(rgba32f) uniform image2D img_output;
         uniform float time;
-        uniform float thingh;
-        //uniform float fade;
-        uniform float slow;
-        uniform float thinggris;
-        uniform vec2 thingres;
-
-
-        // Noise generation functions
-
-        vec4 mod289(vec4 x) {
-            return x - floor(x * (1.0 / 289.0)) * 289.0;
-        }
-
-        vec4 permute(vec4 x) {
-            return mod289(((x * 34.0) + 1.0) * x);
-        }
-
-        vec4 taylorInvSqrt(vec4 r) {
-            return 1.79284291400159 - 0.85373472095314 * r;
-        }
-
-        vec2 fadeEffect(vec2 t) {
-            return t * t * t * (t * (t * 6.0 - 15.0) + 10.0);
-        }
-
-        float cnoise(vec2 P) {
-            vec4 Pi = floor(P.xyxy) + vec4(0.0, 0.0, 1.0, 1.0);
-            vec4 Pf = fract(P.xyxy) - vec4(0.0, 0.0, 1.0, 1.0);
-            Pi = mod289(Pi); // To avoid truncation effects in permutation
-            vec4 ix = Pi.xzxz;
-            vec4 iy = Pi.yyww;
-            vec4 fx = Pf.xzxz;
-            vec4 fy = Pf.yyww;
-
-            vec4 i = permute(permute(ix) + iy);
-
-            vec4 gx = fract(i * (1.0 / 41.0)) * 2.0 - 1.0 ;
-            vec4 gy = abs(gx) - 0.5 ;
-            vec4 tx = floor(gx + 0.5);
-            gx = gx - tx;
-
-            vec2 g00 = vec2(gx.x,gy.x);
-            vec2 g10 = vec2(gx.y,gy.y);
-            vec2 g01 = vec2(gx.z,gy.z);
-            vec2 g11 = vec2(gx.w,gy.w);
-
-            vec4 norm = taylorInvSqrt(vec4(dot(g00, g00), dot(g01, g01), dot(g10, g10), dot(g11, g11)));
-            g00 *= norm.x;
-            g01 *= norm.y;
-            g10 *= norm.z;
-            g11 *= norm.w;
-
-            float n00 = dot(g00, vec2(fx.x, fy.x));
-            float n10 = dot(g10, vec2(fx.y, fy.y));
-            float n01 = dot(g01, vec2(fx.z, fy.z));
-            float n11 = dot(g11, vec2(fx.w, fy.w));
-
-            vec2 fade_xy = fadeEffect(Pf.xy);
-            vec2 n_x = mix(vec2(n00, n01), vec2(n10, n11), fade_xy.x);
-            float n_xy = mix(n_x.x, n_x.y, fade_xy.y);
-            return 2.3 * n_xy;
-        }
-
-        // Classic Perlin noise, periodic variant
-        float pnoise(vec2 P, vec2 rep)
-        {
-        vec4 Pi = floor(P.xyxy) + vec4(0.0, 0.0, 1.0, 1.0);
-        vec4 Pf = fract(P.xyxy) - vec4(0.0, 0.0, 1.0, 1.0);
-        Pi = mod(Pi, rep.xyxy); // To create noise with explicit period
-        Pi = mod289(Pi); // To avoid truncation effects in permutation
-        vec4 ix = Pi.xzxz;
-        vec4 iy = Pi.yyww;
-        vec4 fx = Pf.xzxz;
-        vec4 fy = Pf.yyww;
-
-        //  vec4 i = permute(permute(ix) + iy);
-        vec4 i = permute(permute(iy + ix) + ix + iy + permute(ix));
-
-        vec4 gx = fract(i * (1.0 / (20.0+31.0*sin(0.1*time)))) * 2.0 - 1.0 ;
-        vec4 gy = abs(gx) - 0.5 * sin(gx*time*0.1) ;
-        vec4 tx = floor(gx + 0.5);
-        gx = gx - tx;
-
-        vec2 g00 = vec2(gx.x,gy.x);
-        vec2 g10 = vec2(gx.y,gy.y);
-        vec2 g01 = vec2(gx.z,gy.z);
-        vec2 g11 = vec2(gx.w,gy.w);
-
-        vec4 norm = taylorInvSqrt(vec4(dot(g00, g00), dot(g01, g01), dot(g10, g10), dot(g11, g11)));
-        g00 *= norm.x;
-        g01 *= norm.y;
-        g10 *= norm.z;
-        g11 *= norm.w;
-
-        float n00 = dot(g00, vec2(fx.x, fy.x));
-        float n10 = dot(g10, vec2(fx.y, fy.y));
-        float n01 = dot(g01, vec2(fx.z, fy.z));
-        float n11 = dot(g11, vec2(fx.w, fy.w));
-
-        vec2 fade_xy = fadeEffect(Pf.xy);
-        vec2 n_x = mix(vec2(n00, n01), vec2(n10, n11), fade_xy.x);
-        float n_xy = mix(n_x.x, n_x.y, fade_xy.y);
-        return 1.3 * n_xy;
-        }
-
 
         void main() {
-            ivec2 texel_coord = ivec2(gl_GlobalInvocationID.xy);
+        ivec2 texel_coord = ivec2(gl_GlobalInvocationID.xy);
+        
+        // Base color change on position
+        float base_red = float(texel_coord.x) / (gl_NumWorkGroups.x);
+        float base_green = float(texel_coord.y) / (gl_NumWorkGroups.y);
 
-            float time2 = (sin(time)+1)*10.0/slow;  // Oscillates between 0 and 1
-            vec3 rgb = vec3(vec2(float(texel_coord.x)/thingres.x,float(texel_coord.y)/thingres.y), 0.1);
-            rgb.g *= time2 * pnoise(vec2(rgb.rg + time2), vec2(rgb.rb));
-            rgb.r = sin(time2 * thingh) + rgb.r;
-            rgb.b = (cos(thingh+0.1) * time2) + rgb.b;
-            vec3 col = mix(rgb, vec3(0.33333 * (rgb.r + rgb.b + rgb.g)), (thinggris));
-            //apparently it likes thing as uniform names. why is this? I don't know. WHAT?
-            //col = vec3(0.0,1.0,1.0);
+        // Modulate color based on time
+        float time_red = (sin(time) + 1.0) / 2.0;  // Oscillates between 0 and 1
+        float time_green = (cos(time) + 1.0) / 2.0;  // Oscillates between 0 and 1
 
-            vec4 output_color = vec4(col,1.0);
+        // Combine the position-based color with the time-based modulation
+        vec4 value = vec4(base_red * time_red, base_green * time_green, 0.0, 1.0);
 
-
-            imageStore(img_output, texel_coord, output_color);
+        imageStore(img_output, texel_coord, value);
         }
-
         """
 
     elif emotion == 'Fear':
@@ -736,21 +628,13 @@ def set_uniforms_for_shader(emotion, shader_program,args):
     elif emotion == 'Surprise':
         start_time,window = args
         shader_program['time'] = float(time.time() - start_time)
-        shader_program['thingh'] = 1.0
-        # shader_program['fade'] = 1.0
-        shader_program['slow'] = 10.0
-
-        # print(shader_program['colour_h'])
-        shader_program['thinggris'] = 1.0
-        shader_program['thingres'] = (float(window.width), float(window.height))
-        # print(shader_program['colour_h'])
 
     elif emotion == 'Fear':
-        start_time,window = args
+        start_time,window,head_position = args
         shader_program['time'] = float(time.time() - start_time)
         shader_program['resolution'] = (float(window.width), float(window.height * 1.4))
         # shader_program['resolution'] = (2500.0,2500.0)
-        shader_program['position'] = (window._mouse_x, window._mouse_y)
+        shader_program['position'] = (float(head_position[0]), float(head_position[1]))
 
 
     elif emotion == 'Anger':
@@ -800,7 +684,7 @@ def shader_on_draw(emotion,shader_program, compute_program, batch,window,args):
 
 import time
 
-def return_args(emotion,start_time,window):
+def return_args(emotion,start_time,window,head_position):
     if emotion == 'Sad':
             args = start_time
 
@@ -808,7 +692,7 @@ def return_args(emotion,start_time,window):
         args = (start_time,window)
 
     elif emotion == 'Fear':
-        args = (start_time,window)
+        args = (start_time,window,head_position)
     
     elif emotion == 'Surprise':
         args = (start_time,window)
@@ -842,7 +726,7 @@ if __name__ == '__main__':
         window.clear()
         batch = pyglet.graphics.Batch()
         
-        args = return_args(emotion,start_time,window)
+        args = return_args(emotion,start_time,window,head_position=(0.,0.))
         
         shader_on_draw(emotion,shader_program, compute_program, batch,window,args)
 

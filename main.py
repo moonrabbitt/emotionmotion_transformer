@@ -259,7 +259,7 @@ def generate_new_batch(last_frame=None):
         init_flag= False
         
     
-    print(init_flag)
+    # print(init_flag)
     return smoothed_keypoints, emotion_vectors
 
 def generate_batches_periodically(queue, period=2, last_frames=None):
