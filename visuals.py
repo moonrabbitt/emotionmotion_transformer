@@ -84,41 +84,46 @@ def load_shader(shader_file):
 
 
 def return_properties(emotion_vector, connection):
+
+    emotion_labels = ['Anger', 'Disgust', 'Fear', 'Happiness', 'Neutral', 'Sad', 'Surprise']
+
+    # Ensure the emotion_vector is the same length as emotion_labels
+    if len(emotion_vector) != len(emotion_labels):
+        raise ValueError("Length of emotion_vector must match the number of emotion_labels")
+
+    # Choose an emotion based on the normalized dominance values (probabilities)
+    chosen_emotion = random.choices(emotion_labels, weights=emotion_vector, k=1)[0]
+
+    
+
+    # Construct the file path
     try:
-        emotion_labels = ['Anger', 'Disgust', 'Fear', 'Happiness', 'Neutral', 'Sad', 'Surprise']
-
-        # Ensure the emotion_vector is the same length as emotion_labels
-        if len(emotion_vector) != len(emotion_labels):
-            raise ValueError("Length of emotion_vector must match the number of emotion_labels")
-
-        # Choose an emotion based on the normalized dominance values (probabilities)
-        chosen_emotion = random.choices(emotion_labels, weights=emotion_vector, k=1)[0]
-
         # Join the connection names into a single string
-        connection = '_'.join(connection)
-
-        # Construct the file path
-        file_path = f'D:\\Interactive Dance Thesis Tests\\visualisations\\{chosen_emotion}_NORM\\{connection}\\*.png'
+        connection_path = '_'.join(connection)
+        file_path = f'D:\\Interactive Dance Thesis Tests\\visualisations\\{chosen_emotion}_NORM\\{connection_path}\\*'
         path = random.choice(glob.glob(file_path))
-
-        scale = 1.0
-        if chosen_emotion == 'Happiness':
-            scale = 1.0
-        elif chosen_emotion == 'Sad':
-            scale = 1.5
-        elif chosen_emotion == 'Surprise':
-            scale = 1.0
-        elif chosen_emotion == 'Disgust':
-            scale = 1.2
-        else:
-            scale = 1.0
-
-
-        return path, scale
-
     except IndexError:
-        # body part not found
-        return None, None
+        connection_path = '_'.join(connection[::-1])
+        file_path = f'D:\\Interactive Dance Thesis Tests\\visualisations\\{chosen_emotion}_NORM\\{connection_path}\\*'
+        path = random.choice(glob.glob(file_path))
+    
+
+    scale = 1.0
+    if chosen_emotion == 'Happiness':
+        scale = 1.0
+    elif chosen_emotion == 'Sad':
+        scale = 1.5
+    elif chosen_emotion == 'Surprise':
+        scale = 1.0
+    elif chosen_emotion == 'Disgust':
+        scale = 1.2
+    else:
+        scale = 1.0
+
+
+    return path, scale
+
+
 
 def global_load_images():
     # GPU memory management - store path to not load sprite every frame
@@ -130,6 +135,7 @@ def visualise_body(frame_data, emotion_vectors, max_x, max_y,window,start_time,f
     # print('visualising body')
     # clear memory
     global limb_sprites
+    global scale
     
     print(emotion_vectors)
     print(frame_index)
@@ -172,23 +178,14 @@ def visualise_body(frame_data, emotion_vectors, max_x, max_y,window,start_time,f
     # Define the limb connections using names
     limb_connections_names = [
         ("Nose", "Neck"),
-        ("Neck", "R-Sho"),
         ("R-Sho", "R-Elb"),
         ("R-Elb", "R-Wr"),
-        ("Neck", "L-Sho"),
         ("L-Sho", "L-Elb"),
         ("L-Elb", "L-Wr"),
-        ("Neck", "MidHip"),
-        ("MidHip", "R-Hip"),
         ("R-Hip", "R-Knee"),
         ("R-Knee", "R-Ank"),
-        ("MidHip", "L-Hip"),
         ("L-Hip", "L-Knee"),
         ("L-Knee", "L-Ank"),
-        ("Nose", "R-Eye"),
-        ("R-Eye", "R-Ear"),
-        ("Nose", "L-Eye"),
-        ("L-Eye", "L-Ear"),
         ("L-Ank", "L-BigToe"),
         ("L-Ank", "L-SmallToe"),
         ("L-Ank", "L-Heel"),
@@ -329,6 +326,7 @@ def visualise_body(frame_data, emotion_vectors, max_x, max_y,window,start_time,f
     # Function to draw each frame
     def draw_frame(frame_data):
 
+
         is_blinking = frame_index % BLINK_INTERVAL < BLINK_DURATION
 
 
@@ -344,6 +342,11 @@ def visualise_body(frame_data, emotion_vectors, max_x, max_y,window,start_time,f
             sprite.y = 0
             sprite.rotation = 0
             sprite.scale = 1
+            
+            if sprite.width is None or sprite.height is None:
+                print(limb)
+                raise ValueError("Sprite width and height must be set before drawing")
+                
 
             if len(limb) == 4:
 
@@ -470,11 +473,8 @@ def visualise_body(frame_data, emotion_vectors, max_x, max_y,window,start_time,f
                 distance = math.sqrt((end_x - start_x) ** 2 + (end_y - start_y) ** 2)
 
                 # Set sprite properties
-
                 sprite.rotation = math.degrees(angle)
-
                 sprite.scale = (distance / sprite.height)*1.1 *scale
-
                 sprite.x, sprite.y = start_x, start_y
 
             sprite.draw()
@@ -598,7 +598,7 @@ if __name__ == '__main__':
     # emotion_labels = ['Anger', 'Disgust', 'Fear', 'Happiness', 'Neutral', 'Sad', 'Surprise']
 
     # happy emotion vector for testing
-    emotion_vectors = (torch.tensor([[0.0, 0.0, 0.0, 1.0, 0.0, 0.0,0.0]]), torch.tensor([[0.0, 0.0, 0.0, 1.0, 0.0, 0.0,0.0]]))
+    emotion_vectors = (torch.tensor([[0.0, 0.0, 0.0, 1.0, 0.0, 0.0,0.0]]), torch.tensor([[1.0, 1.0, 1.0, 1.0, 1.0, 1.0,1.0]]))
     
     global_load_images()
 

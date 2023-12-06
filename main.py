@@ -80,7 +80,7 @@ args = argparse.Namespace(
         DROPOUT=0.2,
         LEARNING_RATE=0.0001,
         EPOCHS=30000,
-        FRAMES_GENERATE=20,
+        FRAMES_GENERATE=35,
         TRAIN=False,
         EVAL_EVERY=1000,
         CHECKPOINT_PATH="checkpoints/proto10_checkpoint.pth",
@@ -244,13 +244,22 @@ def generate_new_batch(last_frame=None):
     
     # Example Usage
     max_movement = 100  # Maximum allowed movement per step
-    max_length = 100
+    max_length = 200
     unnorm_out =unnormalise_list_2D(detached_keypoints, max_x, min_x, max_y, min_y, max_x, min_x, max_y, min_y)
     if init_flag == False:
+        # not first frame
         smoothed_keypoints = smooth_generated_sequence_with_cap(torch.tensor(unnorm_out, device=device), max_movement, max_length)
+        # print(smoothed_keypoints)
+        # print('smooth')
+        # print(unnorm_out)
+        # print('unormout')
     else:
+        # first frame
         smoothed_keypoints = unnorm_out
+        init_flag= False
+        
     
+    print(init_flag)
     return smoothed_keypoints, emotion_vectors
 
 def generate_batches_periodically(queue, period=5, last_frames=None):
@@ -260,7 +269,7 @@ def generate_batches_periodically(queue, period=5, last_frames=None):
         print('GENERATED BATCH PUTTING IN QUEUE')
         for frame in tqdm(unnorm_out[0]):
             queue.put((frame, emotion_vectors))
-        print(last_frames)
+        # print(last_frames)
         last_frames = unnorm_out
         
 # Function to update the visualisation

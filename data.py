@@ -626,31 +626,24 @@ def smooth_generated_sequence_with_cap(generated_sequence, max_movement, max_len
 
     smoothed_sequence = []
     for b in range(B):
-        batch_sequence = [generated_sequence[b, 0]]
+        batch_sequence = [generated_sequence[b, 0].tolist()]  # Convert to list
         print(f"Length before smoothing for batch {b}: {len(batch_sequence)}")
         for t in range(1, T):
             capped_frames = cap_movements(generated_sequence[b, t - 1], generated_sequence[b, t], max_movement)
-            batch_sequence.extend(capped_frames[1:])  # Exclude the first frame to avoid duplicates
+            batch_sequence.extend(frame.tolist() for frame in capped_frames[1:])  # Convert to list and exclude the first frame
 
-            # If max_length is specified and the batch_sequence length exceeds max_length, truncate it
             if max_length is not None and len(batch_sequence) > max_length:
                 batch_sequence = batch_sequence[:max_length]
                 break
 
         print(f"Length of sequence after smoothing for batch {b}: {len(batch_sequence)}")
         
-        # Ensure each sequence in smoothed_sequence is truncated to max_length
         if max_length is not None and len(batch_sequence) > max_length:
             batch_sequence = batch_sequence[:max_length]
         
-        smoothed_sequence.append(torch.stack(batch_sequence))
+        smoothed_sequence.append(batch_sequence)  # Add the list directly
 
-    # Determine the length for padding based on whether max_length is specified
-    padding_length = max_length if max_length is not None else max(len(seq) for seq in smoothed_sequence)
-    
-    # Pad sequences to the same length
-    padded_sequence = [pad_sequence_to_length(seq, padding_length) for seq in smoothed_sequence]
-    return torch.stack(padded_sequence).to(device)
+    return smoothed_sequence
 
 
 
