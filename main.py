@@ -80,7 +80,7 @@ args = argparse.Namespace(
         DROPOUT=0.2,
         LEARNING_RATE=0.0001,
         EPOCHS=30000,
-        FRAMES_GENERATE=200,
+        FRAMES_GENERATE=30,
         TRAIN=False,
         EVAL_EVERY=1000,
         CHECKPOINT_PATH="checkpoints/proto10_checkpoint.pth",
@@ -169,10 +169,7 @@ def normalise_generated(unnorm_out, max_x, min_x, max_y, min_y, max_dx, min_dx, 
     return norm_out
 
 
-# Initial setup
-shared_data = {
-    'average_scores': [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-}
+
 
 # different from normal emotion labels - matches the sentiment analyser
 emotion_labels = ['anger', 'disgust', 'fear', 'joy', 'neutral', 'sadness', 'surprise']
@@ -185,7 +182,7 @@ terminate_threads = False
 # This queue will hold the batches ready for visualization
 viz_queue = queue.Queue()
 
-def process_chat_message(c):
+def process_chat_message(c,shared_data):
     """Process a chat message and update emotion scores."""
     detected_emotion = None
 
@@ -233,10 +230,12 @@ def process_chat_message(c):
     for i, emotion in enumerate(emotion_labels):
         shared_data['average_scores'][i] = emotion_data[emotion]["score"]
 
-    print("Average scores:", shared_data['average_scores'])
+    print("Updated average scores in shared_data:", shared_data['average_scores'])
+    # print("Average scores:", shared_data['average_scores'])
+
 
 # Batch generation function
-def generate_new_batch(last_frame=None):
+def generate_new_batch(shared_data,last_frame=None):
     """Generate a new batch based on the current average scores."""
     # If initial_data is None or empty, initialize with default values
     init_flag= False
@@ -248,6 +247,7 @@ def generate_new_batch(last_frame=None):
     last_frames = last_frame[0][-3:]
     norm_last_frames = normalise_generated(last_frames, max_x, min_x, max_y, min_y, max_x, min_x, max_y, min_y)
     new_input = torch.tensor([norm_last_frames]).to(device).float()
+    print(shared_data['average_scores'])
     emotion_in = torch.tensor([shared_data['average_scores']]).to(device).float()
 
     # Generate the new frames
@@ -278,10 +278,10 @@ def generate_new_batch(last_frame=None):
     # print(init_flag)
     return smoothed_keypoints, emotion_vectors
 
-def generate_batches_periodically(queue, period=2, last_frames=None):
+def generate_batches_periodically(queue, shared_data,period=2, last_frames=None):
     while True:
         time.sleep(period)
-        unnorm_out, emotion_vectors = generate_new_batch(last_frames)
+        unnorm_out, emotion_vectors = generate_new_batch(shared_data, last_frames)
         print('GENERATED BATCH PUTTING IN QUEUE')
         for frame in tqdm(unnorm_out[0]):
             queue.put((frame, emotion_vectors))
@@ -325,14 +325,20 @@ def update(dt):
         
 # Function to process chat messages in a separate process
 def chat_process(terminate_event):
-    chat = pytchat.create(video_id="n4zJBGjL7cI") # CHANGE LINK HERE
+    chat = pytchat.create(video_id="4c7_urOJnZI") # CHANGE LINK HERE
     while not terminate_event.is_set():
         for c in chat.get().sync_items():
             process_chat_message(c)  # Make sure this function uses shared_data appropriately
             # Update viz_queue or other shared resources as needed
-        
+
+from multiprocessing import Manager, shared_memory
+
 if __name__ == '__main__':
 
+    manager = Manager()
+    shared_data = manager.dict()
+    shared_data['average_scores'] = [0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0]
+    
     # Shared event to signal termination
     terminate_event = multiprocessing.Event()
     
@@ -348,11 +354,11 @@ if __name__ == '__main__':
     viz_queue = multiprocessing.Queue()
     
     # Start the processes
-    generation_process = multiprocessing.Process(target=generate_batches_periodically, args=(viz_queue, 5))
+    generation_process = multiprocessing.Process(target=generate_batches_periodically, args=(viz_queue, shared_data,2))
     generation_process.start()
 
     # Start chat processing process
-    chat_proc = multiprocessing.Process(target=chat_process, args=(terminate_event,))
+    chat_proc = multiprocessing.Process(target=chat_process, args=(terminate_event,shared_data))
     chat_proc.start()
 
 
