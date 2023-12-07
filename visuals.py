@@ -548,16 +548,18 @@ def visualise_body(frame_data, emotion_vectors, max_x, max_y,window,start_time,f
 
             y0, dy = 30, 15  # Starting y position and line gap
 
-            label = Label("Model's Emotions:", x=10, y=y0, font_size=12, color=(255, 255, 255, 255))
+            y = window.height - y0 
+            label = Label("Model's Emotions:", x=10, y=y, font_size=12, color=(255, 255, 255, 255))
             label.draw()
+            label = Label("Audience's Emotions:", x=window.width - 155, y=y, font_size=12, color=(255, 255, 255, 255))
+            label.draw()
+            
             # Draw emotion_in percentages
             for i, line in enumerate(emotion_in_percentages):
                 y = window.height - y0 - (i+1) * dy
                 label = Label(line, x=10, y=y, font_size=12, color=(255, 255, 255, 255))
                 label.draw()
 
-            label = Label("Audience's Emotions:", x=window.width - 120, y=y0, font_size=12, color=(255, 255, 255, 255))
-            label.draw()
             # Draw emotion_out percentages
             for i, line in enumerate(emotion_out_percentages):
                 y = window.height - y0 - (i+1) * dy
