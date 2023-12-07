@@ -299,7 +299,7 @@ def clear_sprites():
         limb_sprites = {}
 
     except NameError:
-        print('Name error')
+        # print('Name error')
         pass
 
 

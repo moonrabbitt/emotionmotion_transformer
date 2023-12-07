@@ -578,7 +578,7 @@ def clear_sprites():
         limb_sprites = {}
 
     except NameError:
-        print('Name error')
+        # print('Name error')
         pass
 
 
@@ -603,7 +603,7 @@ if __name__ == '__main__':
     # Preload frames into the queue
     for frame in unnorm_out:
         frame_queue.put(frame)
-    print(len(unnorm_out))
+    # print(len(unnorm_out))
 
     # emotion_labels = ['Anger', 'Disgust', 'Fear', 'Happiness', 'Neutral', 'Sad', 'Surprise']
 
