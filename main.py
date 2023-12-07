@@ -8,7 +8,7 @@ import pytchat
 from data import *
 from visuals import visualise_body, global_load_images
 import pyglet
-
+from multiprocessing import Manager, shared_memory, Lock
 # Use a pipeline as a high-level helper
 from transformers import pipeline
 # Load model directly
@@ -170,11 +170,11 @@ def normalise_generated(unnorm_out, max_x, min_x, max_y, min_y, max_dx, min_dx, 
 
 
 
-
 # different from normal emotion labels - matches the sentiment analyser
 emotion_labels = ['anger', 'disgust', 'fear', 'joy', 'neutral', 'sadness', 'surprise']
 
 emotion_data = {emotion: {"score": 0.0, "count": 0} for emotion in emotion_labels}
+lock = Lock()
 
 chat = pytchat.create(video_id="gCNeDWCI0vo")
 terminate_threads = False
@@ -182,11 +182,20 @@ terminate_threads = False
 # This queue will hold the batches ready for visualization
 viz_queue = queue.Queue()
 
-def process_chat_message(c,shared_data):
-    """Process a chat message and update emotion scores."""
+from multiprocessing import shared_memory
+import numpy as np
+lock = Lock()
+def process_chat_message(c):
+    
+    """Process a chat message and update emotion scores using shared memory."""
     detected_emotion = None
 
-    if c.message.startswith('!GALLERY INPUT!:'):  # Gallery input format: !GALLERY INPUT!:emotion=score
+    # Attach to the existing shared memory block
+    existing_shm = shared_memory.SharedMemory(name='average_scores_shm')
+    shared_average_scores = np.ndarray((len(emotion_labels),), dtype=np.float64, buffer=existing_shm.buf)
+
+    # Process the chat message
+    if c.message.startswith('!GALLERY INPUT!:'):  # Gallery input format
         parts = c.message.split('!GALLERY INPUT!:')[1].split('=')
         if len(parts) == 2:
             detected_emotion, score = parts
@@ -201,12 +210,12 @@ def process_chat_message(c,shared_data):
 
     else:
         print(f"{c.datetime} [{c.author.name}]- {c.message}")
-        result = pipe(c.message)  # Assuming pipe() returns emotion prediction
+        # Assuming pipe() returns emotion prediction
+        result = pipe(c.message)
         print(result)
 
         if result:
             detected_emotion = result[0]['label']
-            # Reset the counter for the detected emotion and boost its score
             emotion_data[detected_emotion]["count"] = 0
             score = result[0]['score']
             emotion_data[detected_emotion]["score"] = min(1, emotion_data[detected_emotion]["score"] + score)
@@ -218,44 +227,51 @@ def process_chat_message(c,shared_data):
             if data["count"] >= 5:
                 data["score"] = 0
             else:
-                data["score"] *= 0.5  # or any other decay factor you prefer
+                data["score"] *= 0.5  # or any other decay factor
 
     # Normalize the scores so they add up to 1
     total_score = sum(data["score"] for data in emotion_data.values())
     if total_score > 0:
-        for emotion in emotion_labels:
+        for i, emotion in enumerate(emotion_labels):
             emotion_data[emotion]["score"] /= total_score
+            with lock:
+                shared_average_scores[i] = emotion_data[emotion]["score"]
 
-    # Update average scores
-    for i, emotion in enumerate(emotion_labels):
-        shared_data['average_scores'][i] = emotion_data[emotion]["score"]
+    print("Updated average scores in shared memory:", shared_average_scores[:])
 
-    print("Updated average scores in shared_data:", shared_data['average_scores'])
-    # print("Average scores:", shared_data['average_scores'])
+    # Close the shared memory reference
+    existing_shm.close()
 
 
 # Batch generation function
-def generate_new_batch(shared_data,last_frame=None):
-    """Generate a new batch based on the current average scores."""
-    # If initial_data is None or empty, initialize with default values
-    init_flag= False
+def generate_new_batch(last_frame=None):
+    """Generate a new batch based on the current average scores using shared memory."""
+    # Attach to the existing shared memory block
+    existing_shm = shared_memory.SharedMemory(name='average_scores_shm')
+    shared_average_scores = np.ndarray((7,), dtype=np.float64, buffer=existing_shm.buf)
+
+    # Initialize with default values if needed
+    init_flag = False
     if last_frame is None:
         print('LAST FRAME IS NONE')
-        last_frame = torch.randn(1,5, 50).to(device)  # initialise with noise
-        init_flag = True # First Frame
+        last_frame = torch.randn(1, 5, 50).to(device)  # Initialize with noise
+        init_flag = True  # First Frame
 
     last_frames = last_frame[0][-3:]
     norm_last_frames = normalise_generated(last_frames, max_x, min_x, max_y, min_y, max_x, min_x, max_y, min_y)
     new_input = torch.tensor([norm_last_frames]).to(device).float()
-    print(shared_data['average_scores'])
-    emotion_in = torch.tensor([shared_data['average_scores']]).to(device).float()
+
+    # Use shared average scores for emotion input
+    # Directly convert the NumPy array to a PyTorch tensor
+    emotion_in = torch.tensor([shared_average_scores], dtype=torch.float).to(device)
+
 
     # Generate the new frames
     generated_keypoints, generated_emotion = m.generate(new_input, emotion_in, FRAMES_GENERATE)
-    
+
     detached_keypoints = generated_keypoints.detach().cpu()
     detached_emotion = generated_emotion.detach().cpu()
-    
+
     emotion_vectors = (emotion_in, detached_emotion)
     
     # Example Usage
@@ -274,14 +290,14 @@ def generate_new_batch(shared_data,last_frame=None):
         smoothed_keypoints = unnorm_out
         init_flag= False
         
-    
+    existing_shm.close()
     # print(init_flag)
     return smoothed_keypoints, emotion_vectors
 
-def generate_batches_periodically(queue, shared_data,period=2, last_frames=None):
+def generate_batches_periodically(queue, period=2, last_frames=None):
     while True:
         time.sleep(period)
-        unnorm_out, emotion_vectors = generate_new_batch(shared_data, last_frames)
+        unnorm_out, emotion_vectors = generate_new_batch(last_frames)
         print('GENERATED BATCH PUTTING IN QUEUE')
         for frame in tqdm(unnorm_out[0]):
             queue.put((frame, emotion_vectors))
@@ -325,20 +341,33 @@ def update(dt):
         
 # Function to process chat messages in a separate process
 def chat_process(terminate_event):
-    chat = pytchat.create(video_id="4c7_urOJnZI") # CHANGE LINK HERE
+    chat = pytchat.create(video_id="lHpYyYtkmrw") # CHANGE LINK HERE
     while not terminate_event.is_set():
         for c in chat.get().sync_items():
             process_chat_message(c)  # Make sure this function uses shared_data appropriately
             # Update viz_queue or other shared resources as needed
 
-from multiprocessing import Manager, shared_memory
+
 
 if __name__ == '__main__':
 
-    manager = Manager()
-    shared_data = manager.dict()
-    shared_data['average_scores'] = [0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0]
-    
+    # Create a shared memory block to store the average scores
+    size = 7  # Assuming 7 average scores
+    shared_memory_name = 'average_scores_shm'
+
+    try:
+        shm = shared_memory.SharedMemory(name=shared_memory_name)
+        shm.unlink()  # Delete the existing shared memory block
+    except FileNotFoundError:
+        pass  # The shared memory block doesn't exist yet or has already been unlinked
+
+    # Now create a new shared memory block
+    shm = shared_memory.SharedMemory(name=shared_memory_name, create=True, size=size * np.float64().itemsize)
+
+    # Create a NumPy array that views this shared memory
+    average_scores = np.ndarray((size,), dtype=np.float64, buffer=shm.buf)
+    average_scores[:] = [0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0]  # Initial values
+        
     # Shared event to signal termination
     terminate_event = multiprocessing.Event()
     
@@ -354,11 +383,11 @@ if __name__ == '__main__':
     viz_queue = multiprocessing.Queue()
     
     # Start the processes
-    generation_process = multiprocessing.Process(target=generate_batches_periodically, args=(viz_queue, shared_data,2))
+    generation_process = multiprocessing.Process(target=generate_batches_periodically, args=(viz_queue,5))
     generation_process.start()
 
     # Start chat processing process
-    chat_proc = multiprocessing.Process(target=chat_process, args=(terminate_event,shared_data))
+    chat_proc = multiprocessing.Process(target=chat_process, args=(terminate_event,))
     chat_proc.start()
 
 
@@ -386,3 +415,7 @@ if __name__ == '__main__':
     chat_proc.join()
     generation_process.join()
     pyglet.app.exit()
+    
+    # At the end of your main script
+    shm.close()
+    shm.unlink()
