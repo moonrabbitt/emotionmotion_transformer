@@ -187,16 +187,32 @@ viz_queue = queue.Queue()
 
 def process_chat_message(c):
     """Process a chat message and update emotion scores."""
-    print(f"{c.datetime} [{c.author.name}]- {c.message}")
-    result = pipe(c.message)  # Assuming pipe() returns emotion prediction
-    print(result)
+    detected_emotion = None
 
-    detected_emotion = result[0]['label']
+    if c.message.startswith('!GALLERY INPUT!:'):  # Gallery input format: !GALLERY INPUT!:emotion=score
+        parts = c.message.split('!GALLERY INPUT!:')[1].split('=')
+        if len(parts) == 2:
+            detected_emotion, score = parts
+            try:
+                score = float(score)
+                emotion_data[detected_emotion]["score"] = min(1, score)
+                emotion_data[detected_emotion]["count"] = 0
+            except ValueError:
+                print("Invalid score format.")
+        else:
+            print("Invalid gallery input format.")
 
-    # Reset the counter for the detected emotion and boost its score
-    emotion_data[detected_emotion]["count"] = 0
-    score = result[0]['score']
-    emotion_data[detected_emotion]["score"] = min(1, emotion_data[detected_emotion]["score"] + score)
+    else:
+        print(f"{c.datetime} [{c.author.name}]- {c.message}")
+        result = pipe(c.message)  # Assuming pipe() returns emotion prediction
+        print(result)
+
+        if result:
+            detected_emotion = result[0]['label']
+            # Reset the counter for the detected emotion and boost its score
+            emotion_data[detected_emotion]["count"] = 0
+            score = result[0]['score']
+            emotion_data[detected_emotion]["score"] = min(1, emotion_data[detected_emotion]["score"] + score)
 
     # Decay scores for other emotions and increase their counters
     for emotion, data in emotion_data.items():
@@ -309,7 +325,7 @@ def update(dt):
         
 # Function to process chat messages in a separate process
 def chat_process(terminate_event):
-    chat = pytchat.create(video_id="gCNeDWCI0vo")
+    chat = pytchat.create(video_id="n4zJBGjL7cI") # CHANGE LINK HERE
     while not terminate_event.is_set():
         for c in chat.get().sync_items():
             process_chat_message(c)  # Make sure this function uses shared_data appropriately
@@ -332,7 +348,7 @@ if __name__ == '__main__':
     viz_queue = multiprocessing.Queue()
     
     # Start the processes
-    generation_process = multiprocessing.Process(target=generate_batches_periodically, args=(viz_queue, 10))
+    generation_process = multiprocessing.Process(target=generate_batches_periodically, args=(viz_queue, 5))
     generation_process.start()
 
     # Start chat processing process

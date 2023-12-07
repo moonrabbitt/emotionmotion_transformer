@@ -482,6 +482,10 @@ def visualise_body(frame_data, emotion_vectors, max_x, max_y,window,start_time,f
              
                 else:
                     sprite.x, sprite.y = frame_data[limb[0] * 2], max_y - frame_data[limb[0] * 2 + 1]
+                    
+                    if limb == (15,) or limb == (16,): # L-Eye or R-Eye
+                        if sprite.y < frame_data[limb[0] * 2 + 1]: # If eye lower than neck
+                            sprite.y = frame_data[limb[0] * 2 + 1]+10
 
 
 
@@ -489,6 +493,11 @@ def visualise_body(frame_data, emotion_vectors, max_x, max_y,window,start_time,f
                 start_idx, end_idx = limb
                 start_x, start_y = frame_data[start_idx * 2], max_y - frame_data[start_idx * 2 + 1]
                 end_x, end_y = frame_data[end_idx * 2], max_y - frame_data[end_idx * 2 + 1]  # y needs to invert
+                
+                if (start_idx == 1 and end_idx == 0) or (start_idx == 0 and end_idx == 1): # if nose<neck
+                    if frame_data[start_idx * 2+1]<frame_data[end_idx * 2+1]:
+                        frame_data[start_idx * 2+1] = frame_data[end_idx * 2+1]+10
+              
 
                 # # Calculate midpoint, angle, and distance
                 angle = (math.atan2(start_y - end_y, end_x - start_x) -(math.pi/2))  # Flipped y-coordinates means we also change the order here
@@ -539,15 +548,19 @@ def visualise_body(frame_data, emotion_vectors, max_x, max_y,window,start_time,f
 
             y0, dy = 30, 15  # Starting y position and line gap
 
+            label = Label("Model's Emotions:", x=10, y=y0, font_size=12, color=(255, 255, 255, 255))
+            label.draw()
             # Draw emotion_in percentages
             for i, line in enumerate(emotion_in_percentages):
-                y = window.height - y0 - i * dy
+                y = window.height - y0 - (i+1) * dy
                 label = Label(line, x=10, y=y, font_size=12, color=(255, 255, 255, 255))
                 label.draw()
 
+            label = Label("Audience's Emotions:", x=window.width - 120, y=y0, font_size=12, color=(255, 255, 255, 255))
+            label.draw()
             # Draw emotion_out percentages
             for i, line in enumerate(emotion_out_percentages):
-                y = window.height - y0 - i * dy
+                y = window.height - y0 - (i+1) * dy
                 label = Label(line, x=window.width - 120, y=y, font_size=12, color=(255, 255, 255, 255))
                 label.draw()
         #---------------------------------------------------------------------------------------------------

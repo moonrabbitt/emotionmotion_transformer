@@ -624,12 +624,27 @@ def smooth_generated_sequence_with_cap(generated_sequence, max_movement, max_len
     B, T, C = generated_sequence.shape
     print(f"Smoothing generated sequence with max movement {max_movement}...")
 
+    # Keypoint indices for nose, eyes, ears, and neck in the generated sequence
+    nose_idx, neck_idx = 0, 1
+    right_eye_idx, left_eye_idx = 15, 16
+    right_ear_idx, left_ear_idx = 17, 18
+
     smoothed_sequence = []
     for b in range(B):
         batch_sequence = [generated_sequence[b, 0].tolist()]  # Convert to list
         print(f"Length before smoothing for batch {b}: {len(batch_sequence)}")
+
         for t in range(1, T):
+            # Apply max movement cap
             capped_frames = cap_movements(generated_sequence[b, t - 1], generated_sequence[b, t], max_movement)
+
+            # Biological checks
+            for frame in capped_frames:
+                neck_y = frame[neck_idx * 2 + 1]
+                for idx in [nose_idx, right_eye_idx, left_eye_idx, right_ear_idx, left_ear_idx]:
+                    if frame[idx * 2 + 1] > neck_y:  # If y-coordinate of the keypoint is below the neck
+                        frame[idx * 2 + 1] = neck_y - 20  # Set it 20 units above the neck
+
             batch_sequence.extend(frame.tolist() for frame in capped_frames[1:])  # Convert to list and exclude the first frame
 
             if max_length is not None and len(batch_sequence) > max_length:
@@ -637,10 +652,10 @@ def smooth_generated_sequence_with_cap(generated_sequence, max_movement, max_len
                 break
 
         print(f"Length of sequence after smoothing for batch {b}: {len(batch_sequence)}")
-        
+
         if max_length is not None and len(batch_sequence) > max_length:
             batch_sequence = batch_sequence[:max_length]
-        
+
         smoothed_sequence.append(batch_sequence)  # Add the list directly
 
     return smoothed_sequence
