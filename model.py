@@ -342,7 +342,8 @@ class MotionModel(nn.Module):
         
                 # next_values = mdn.sample_dynamic_emotion(pi, sigma, mu, emotion_logits, k=1.0, emotion_weight=1.0)
                 emotion_weight = (1+ (math.cos(normalized_index)))
-                next_values = mdn.sample_dynamic_emotion_individual(cond_sequence, pi, sigma, mu, emotion_logits, k=2.0, emotion_weight=emotion_weight)
+                # next_values = mdn.sample_dynamic_emotion_individual(cond_sequence, pi, sigma, mu, emotion_logits, k=2.0, emotion_weight=emotion_weight)
+                next_values = mdn.select_closest_gaussian(mu, sigma, pi, self.emotion_fc2, self.attention_pooling, emotion_logits, variance_div=100)
                 next_values = next_values.unsqueeze(1)  # Add a time dimension of 1
                 
                 
@@ -560,7 +561,7 @@ def visualise_skeleton(all_frames, max_x, max_y,emotion_vectors=None, max_frames
     previous_frame_data = None
     
     # Iterate over all frames; the first frame uses absolute keypoints, the rest use relative keypoints (deltas)
-    for frame_data in tqdm(all_frames[:max_frames], desc="Visualizing frames"):
+    for frame_data in all_frames[:max_frames]:
         
         # If previous_frame_data is None, this is the first frame and we use absolute positions.
         # Otherwise, add the delta to the previous frame's keypoints to get the new keypoints
@@ -605,13 +606,19 @@ def visualise_skeleton(all_frames, max_x, max_y,emotion_vectors=None, max_frames
         
        # Assuming emotion_vectors is a tuple (emotion_in, emotion_out)
         emotion_in, emotion_out = emotion_vectors
+        if emotion_in.shape[0] == 1:
+            emotion_in = emotion_in.squeeze(0).tolist()
+        if emotion_out.shape[0] == 1:
+            emotion_out = emotion_out.squeeze(0).tolist()
+        
+        
         # emotion_out = frame_data[-7:] #new logic MDN returns emotion logits concat to end of frame data
 
         # Calculate percentages for emotion_in
        
         emotion_in_percentages = [
             f"{int(e * 100)}% {emotion_labels[i]}" 
-            for i, e in enumerate(emotion_in.tolist()) if round(e * 100) > 0
+            for i, e in enumerate(emotion_in) if (int(e) * 100) > 0
         ]
 
 
@@ -619,7 +626,7 @@ def visualise_skeleton(all_frames, max_x, max_y,emotion_vectors=None, max_frames
         
         emotion_out_percentages = [
             f"{int(e * 100)}% {emotion_labels[i]}" 
-            for i, e in enumerate(emotion_out.tolist()) if round(e * 100) > 0
+            for i, e in enumerate(emotion_out) if (int(e) * 100) > 0
         ]
 
         y0, dy = 30, 15  # Starting y position and line gap
@@ -1139,7 +1146,7 @@ def main(args = None):
         
         emotion_vectors = (emotion_in[i],generated_emotion[i])
         frame = int(random.randrange(len(batch))) #only feed 1 frame in for visualisation
-        visualise_skeleton(batch, max_x, max_y,emotion_vectors, max_frames=500,save = True,save_path=None,prefix=f'{EPOCHS}_mdnsample_dyanmic_emotion_indv_noneutral_red_noise',train_seed=train_seed,delta=False)
+        visualise_skeleton(batch, max_x, max_y,emotion_vectors, max_frames=500,save = True,save_path=None,prefix=f'{EPOCHS}_mdnsample_emotion_closest_gaussian',train_seed=train_seed,delta=False)
         # visualise_skeleton(batch, max_x, max_y,emotion_vectors, max_frames=FRAMES_GENERATE,save = True,save_path=None,prefix=f'adam_{EPOCHS}_delta',train_seed=train_seed,delta=True)
 
 

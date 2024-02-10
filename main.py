@@ -174,7 +174,6 @@ def normalise_generated(unnorm_out, max_x, min_x, max_y, min_y, max_dx, min_dx, 
 emotion_labels = ['anger', 'disgust', 'fear', 'joy', 'neutral', 'sadness', 'surprise']
 
 emotion_data = {emotion: {"score": 0.0, "count": 0} for emotion in emotion_labels}
-lock = Lock()
 
 chat = pytchat.create(video_id="gCNeDWCI0vo")
 terminate_threads = False
@@ -201,7 +200,10 @@ def process_chat_message(c):
             detected_emotion, score = parts
             try:
                 score = float(score)
-                emotion_data[detected_emotion]["score"] = min(1, score)
+                if detected_emotion == "happy":
+                    detected_emotion = "joy"
+                emotion_data[detected_emotion]["score"] = min(1, score*0.1)
+                
                 emotion_data[detected_emotion]["count"] = 0
             except ValueError:
                 print("Invalid score format.")
@@ -211,14 +213,16 @@ def process_chat_message(c):
     else:
         print(f"{c.datetime} [{c.author.name}]- {c.message}")
         # Assuming pipe() returns emotion prediction
-        result = pipe(c.message)
-        print(result)
+        result = list(pipe(c.message))  # Convert generator to list
 
         if result:
-            detected_emotion = result[0]['label']
-            emotion_data[detected_emotion]["count"] = 0
-            score = result[0]['score']
-            emotion_data[detected_emotion]["score"] = min(1, emotion_data[detected_emotion]["score"] + score)
+            detected_emotion = result[0].get('label')  # Use .get() to handle NoneType
+            if detected_emotion:
+                emotion_data[detected_emotion]["count"] = 0
+                score = result[0].get('score')  # Use .get() to handle NoneType
+                if score:
+                    emotion_data[detected_emotion]["score"] = min(1, emotion_data[detected_emotion]["score"] + score)
+
 
     # Decay scores for other emotions and increase their counters
     for emotion, data in emotion_data.items():
@@ -234,8 +238,7 @@ def process_chat_message(c):
     if total_score > 0:
         for i, emotion in enumerate(emotion_labels):
             emotion_data[emotion]["score"] /= total_score
-            with lock:
-                shared_average_scores[i] = emotion_data[emotion]["score"]
+            shared_average_scores[i] = emotion_data[emotion]["score"]
 
     print("Updated average scores in shared memory:", shared_average_scores[:])
 
@@ -273,8 +276,7 @@ def generate_new_batch(last_frame=None):
     detached_emotion = generated_emotion.detach().cpu()
 
     emotion_vectors = (emotion_in, detached_emotion)
-    
-    # Example Usage
+
     max_movement = 100  # Maximum allowed movement per step
     max_length = 300
     unnorm_out =unnormalise_list_2D(detached_keypoints, max_x, min_x, max_y, min_y, max_x, min_x, max_y, min_y)
@@ -295,6 +297,7 @@ def generate_new_batch(last_frame=None):
     return smoothed_keypoints, emotion_vectors
 
 def generate_batches_periodically(queue, period=2, last_frames=None):
+    count = 0
     while True:
         time.sleep(period)
         unnorm_out, emotion_vectors = generate_new_batch(last_frames)
@@ -303,6 +306,9 @@ def generate_batches_periodically(queue, period=2, last_frames=None):
             queue.put((frame, emotion_vectors))
         # print(last_frames)
         last_frames = unnorm_out
+        count = count + 1
+        if count % 10 == 0: # every 10 batches clear system with noise
+            last_frames = None
         
 # Function to update the visualisation
 def clear_sprites():
@@ -327,7 +333,11 @@ def update(dt):
             # Get a single frame from the queue and visualize it
             frame_data, emotion_vectors = viz_queue.get_nowait()
             # print('VISUALISING')
-            visualise_body(frame_data, emotion_vectors, max_x, max_y, window,start_time,frame_index)  # Visualize it
+            # glsl visuals
+            # visualise_body(frame_data, emotion_vectors, max_x, max_y, window,start_time,frame_index)  # Visualize it
+            
+            visualise_skeleton([frame_data], max_x, max_y,emotion_vectors, max_frames=500,save = False,save_path=None,prefix=f'',train_seed=train_seed,delta=False,destroy = False)
+            
             frame_index += 1
             # print(frame_index)
             
@@ -341,7 +351,7 @@ def update(dt):
         
 # Function to process chat messages in a separate process
 def chat_process(terminate_event):
-    chat = pytchat.create(video_id="lHpYyYtkmrw") # CHANGE LINK HERE
+    chat = pytchat.create(video_id="jfKfPfyJRdk") # CHANGE LINK HERE
     while not terminate_event.is_set():
         for c in chat.get().sync_items():
             process_chat_message(c)  # Make sure this function uses shared_data appropriately
@@ -366,10 +376,11 @@ if __name__ == '__main__':
 
     # Create a NumPy array that views this shared memory
     average_scores = np.ndarray((size,), dtype=np.float64, buffer=shm.buf)
-    average_scores[:] = [0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0]  # Initial values
+    average_scores[:] = [0.0, 0.0, 0.0, 0.5, 0.0, 0.0, 0.5]  # Initial values
         
     # Shared event to signal termination
     terminate_event = multiprocessing.Event()
+  
     
     # Create the Pyglet window
     window = pyglet.window.Window(int(max_x) + 50, int(max_y) + 50)
@@ -383,7 +394,7 @@ if __name__ == '__main__':
     viz_queue = multiprocessing.Queue()
     
     # Start the processes
-    generation_process = multiprocessing.Process(target=generate_batches_periodically, args=(viz_queue,5))
+    generation_process = multiprocessing.Process(target=generate_batches_periodically, args=(viz_queue,3))
     generation_process.start()
 
     # Start chat processing process

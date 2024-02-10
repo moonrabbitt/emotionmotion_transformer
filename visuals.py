@@ -546,24 +546,24 @@ def visualise_body(frame_data, emotion_vectors, max_x, max_y,window,start_time,f
                 for i, e in enumerate(emotion_out) if max(0,round(e * 100)) 
             ]
 
-            y0, dy = 30, 15  # Starting y position and line gap
+            y0, dy = 45, 30  # Starting y position and line gap
 
             y = window.height - y0 
-            label = Label("Audience's Emotions:", x=10, y=y, font_size=12, color=(255, 255, 255, 255))
+            label = Label("Audience's Emotions:", x=10, y=y, font_size=30, color=(255, 255, 255, 255))
             label.draw()
-            label = Label("Model's Emotions:", x=window.width - 155, y=y, font_size=12, color=(255, 255, 255, 255))
+            label = Label("Model's Emotions:", x=window.width - 350, y=y, font_size=30, color=(255, 255, 255, 255))
             label.draw()
             
             # Draw emotion_in percentages
             for i, line in enumerate(emotion_in_percentages):
                 y = window.height - y0 - (i+1) * dy
-                label = Label(line, x=10, y=y, font_size=12, color=(255, 255, 255, 255))
+                label = Label(line, x=10, y=y, font_size=25, color=(255, 255, 255, 255))
                 label.draw()
 
             # Draw emotion_out percentages
             for i, line in enumerate(emotion_out_percentages):
                 y = window.height - y0 - (i+1) * dy
-                label = Label(line, x=window.width - 120, y=y, font_size=12, color=(255, 255, 255, 255))
+                label = Label(line, x=window.width - 320, y=y, font_size=30, color=(255, 255, 255, 255))
                 label.draw()
         #---------------------------------------------------------------------------------------------------
 
@@ -608,7 +608,7 @@ if __name__ == '__main__':
     # emotion_labels = ['Anger', 'Disgust', 'Fear', 'Happiness', 'Neutral', 'Sad', 'Surprise']
 
     # happy emotion vector for testing
-    emotion_vectors = (torch.tensor([[0.0, 0.0, 0.0, 1.0, 0.0, 0.0,0.0]]), torch.tensor([[0.0, 0.0, 0.0, 0.0, 0.0, 0.0,1.0]]))
+    emotion_vectors = (torch.tensor([[0.0, 0.0, 0.0, 1.0, 0.0, 0.0,0.0]]), torch.tensor([[1.0, 0.0, 0.0, 0.0, 0.0, 0.0,0.0]]))
     
     global_load_images()
 

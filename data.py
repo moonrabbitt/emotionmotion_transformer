@@ -643,7 +643,7 @@ def smooth_generated_sequence_with_cap(generated_sequence, max_movement, max_len
                 neck_y = frame[neck_idx * 2 + 1]
                 for idx in [nose_idx, right_eye_idx, left_eye_idx, right_ear_idx, left_ear_idx]:
                     if frame[idx * 2 + 1] > neck_y:  # If y-coordinate of the keypoint is below the neck
-                        frame[idx * 2 + 1] = neck_y - 20  # Set it 20 units above the neck
+                        frame[idx * 2 + 1] = neck_y   # Set it 20 units above the neck
 
             batch_sequence.extend(frame.tolist() for frame in capped_frames[1:])  # Convert to list and exclude the first frame
 

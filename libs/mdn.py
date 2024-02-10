@@ -21,6 +21,19 @@ device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 ONEOVERSQRT2PI = 1.0 / math.sqrt(2 * math.pi)
 
 
+class EmotionFC2(nn.Module):
+    def __init__(self, in_features, out_features):
+        super(EmotionFC2, self).__init__()
+        self.fc = nn.Linear(in_features, out_features)
+        self.activation = nn.LeakyReLU(0.2)
+        
+    def forward(self, x):
+        return self.activation(self.fc(x))
+
+
+
+
+
 class MDN(nn.Module):
     """A mixture density network layer
 
@@ -347,3 +360,60 @@ def sample_dynamic_emotion_individual(last_frames, pi, sigma, mu, emotion_logits
 
     return selected_samples.to(device)
 
+
+
+def emotion_distance(emotion_logits_gaussians, input_emotion_logits):
+    """
+    Calculate the distance between the emotion logits of Gaussian components and the input emotion logits.
+
+    :param emotion_logits_gaussians: Emotion logits for each Gaussian [B, G, Emotion_Categories]
+    :param input_emotion_logits: Input emotion logits [B, Emotion_Categories]
+    :return: Distance for each Gaussian component [B, G]
+    """
+    # Calculate Euclidean distance or another distance metric
+    distance = torch.norm(emotion_logits_gaussians - input_emotion_logits.unsqueeze(1), dim=2)
+    return distance
+
+def select_closest_gaussian(mu, sigma, pi, emotion_fc2, attention_pooling, input_emotion_logits, variance_div=100):
+    """
+    Select the Gaussian component closest to the input emotion for sampling.
+    """
+    B, T, G, O = mu.shape
+    device = mu.device
+    selected_samples = torch.zeros((B, O), device=device)
+    
+    # Initialize tensor to store pooled emotion logits for each Gaussian
+    # Correct initialization assuming 5 Gaussians, 7 emotion categories, batch size 8
+    pooled_emotion_logits = torch.zeros((8, 5, 7), device=device)
+
+    
+    for g in range(G):
+        # Extract and reshape mu for the g-th Gaussian to apply attention pooling: [B, T, O] -> [B, T, O]
+        mu_g = mu[:, :, g, :]
+        
+        # Apply attention pooling to mu_g: [B, T, O] -> [B, O]
+        pooled_mu_g = attention_pooling(mu_g)
+        
+        # Convert pooled motion features to emotion logits: [B, O] -> [B, Emotion_Categories]
+        emotion_logits_g = emotion_fc2(pooled_mu_g)
+        
+        # Store the pooled emotion logits
+        pooled_emotion_logits[:, g, :] = emotion_logits_g
+    
+    # Calculate distance between pooled emotion logits of each Gaussian and the input emotion logits: [B, G]
+    distances = torch.norm(pooled_emotion_logits - input_emotion_logits.unsqueeze(1), dim=2)
+    
+    # Find the index of the closest Gaussian component for each batch item: [B]
+    closest_idxs = torch.argmin(distances, dim=1)
+    
+    # Sample from the selected Gaussian for each batch item
+    for b in range(B):
+        idx = closest_idxs[b]
+        selected_mu = mu[b, :, idx, :].mean(dim=0)  # [O]
+        selected_sigma = sigma[b, :, idx, :].mean(dim=0) / variance_div  # [O]
+        
+        # Sample from the Normal distribution defined by the selected Gaussian's parameters
+        normal_dist = Normal(selected_mu, selected_sigma)
+        selected_samples[b, :] = normal_dist.sample()
+
+    return selected_samples
