@@ -235,16 +235,21 @@ def select_and_sample_gaussians(last_frames,pi,sigma,mu, emotion_fc2, attention_
     # Sample from the normal distributions
     normal = torch.distributions.Normal(chosen_mu, chosen_sigma)
     
+    selected_sample = normal.sample()  # [B, T, O]
+    
+    # sample 3 times, get the one that is closest to the input emotion
     for i in range(3):
         sample = normal.sample()
         pooled_sample = attention_pooling(sample)
         emotion_logits_sample = emotion_fc2(pooled_sample)
         distance = emotion_distance(emotion_logits_sample, input_emotion_logits)
         closest_distance = torch.min(closest_distance, distance)
-        selected_samples = sample.mean(dim=1)
+        mask = distance < closest_distance
+        closest_distance[mask] = distance[mask]
+        selected_sample[mask] = sample[mask]
     
             
-    return selected_samples
+    return selected_sample[:, -1, :]
 
 
 

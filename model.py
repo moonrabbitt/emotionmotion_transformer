@@ -343,7 +343,7 @@ class MotionModel(nn.Module):
                 # next_values = mdn.sample_dynamic_emotion(pi, sigma, mu, emotion_logits, k=1.0, emotion_weight=1.0)
                 emotion_weight = (1+ (math.cos(normalized_index)))
                 next_values = mdn.select_and_sample_gaussians(cond_sequence,pi,sigma,mu,  self.emotion_fc2, self.attention_pooling, emotion_logits, variance_div=100)
-                # next_values = mdn.select_closest_gaussian(mu, sigma, pi, self.emotion_fc2, self.attention_pooling, emotion_logits, variance_div=100)
+                
                 next_values = next_values.unsqueeze(1)  # Add a time dimension of 1
                 
                 
