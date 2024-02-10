@@ -342,8 +342,8 @@ class MotionModel(nn.Module):
         
                 # next_values = mdn.sample_dynamic_emotion(pi, sigma, mu, emotion_logits, k=1.0, emotion_weight=1.0)
                 emotion_weight = (1+ (math.cos(normalized_index)))
-                # next_values = mdn.sample_dynamic_emotion_individual(cond_sequence, pi, sigma, mu, emotion_logits, k=2.0, emotion_weight=emotion_weight)
-                next_values = mdn.select_closest_gaussian(mu, sigma, pi, self.emotion_fc2, self.attention_pooling, emotion_logits, variance_div=100)
+                next_values = mdn.select_and_sample_gaussians(cond_sequence,pi,sigma,mu,  self.emotion_fc2, self.attention_pooling, emotion_logits, variance_div=100)
+                # next_values = mdn.select_closest_gaussian(mu, sigma, pi, self.emotion_fc2, self.attention_pooling, emotion_logits, variance_div=100)
                 next_values = next_values.unsqueeze(1)  # Add a time dimension of 1
                 
                 
@@ -618,7 +618,7 @@ def visualise_skeleton(all_frames, max_x, max_y,emotion_vectors=None, max_frames
        
         emotion_in_percentages = [
             f"{int(e * 100)}% {emotion_labels[i]}" 
-            for i, e in enumerate(emotion_in) if (int(e) * 100) > 0
+            for i, e in enumerate(emotion_in) if int(float(e) * 100) > 0
         ]
 
 
@@ -626,7 +626,7 @@ def visualise_skeleton(all_frames, max_x, max_y,emotion_vectors=None, max_frames
         
         emotion_out_percentages = [
             f"{int(e * 100)}% {emotion_labels[i]}" 
-            for i, e in enumerate(emotion_out) if (int(e) * 100) > 0
+            for i, e in enumerate(emotion_out) if int(float(e) * 100) > 0
         ]
 
         y0, dy = 30, 15  # Starting y position and line gap
