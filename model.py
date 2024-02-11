@@ -336,7 +336,7 @@ class MotionModel(nn.Module):
                 pi, sigma, mu, logits, emotion_logits, _, _ = self(inputs=cond_sequence, emotions=generated_emotions)
 
                 # CHANGE: Instead of random sampling, use the mean of the most probable component
-                next_values = mdn.sample(cond_sequence,pi, sigma, mu, 10)
+                next_values = mdn.sample(cond_sequence,pi, sigma, mu, 1000)
                 # next_values = mdn.max_sample(pi, sigma, mu)
                 # next_values = mdn.select_sample(pi, sigma, mu)
         
@@ -1136,9 +1136,11 @@ def main(args = None):
         
     unnorm_out = unnormalise_list_2D(generated_keypoints, max_x, min_x, max_y, min_y,max_x, min_x, max_y, min_y)
     # Example Usage
-    max_movement = 100  # Maximum allowed movement per step
-    max_length = 100
-    smoothed_keypoints = smooth_generated_sequence_with_cap(torch.tensor(unnorm_out, device=device), max_movement, max_length)
+    max_movement = 80  # Maximum allowed movement per step
+    max_length = 500
+    temporal_smoothed = temporal_smoothing(torch.tensor(unnorm_out, device=device))
+    smoothed_keypoints = smooth_generated_sequence_with_cap(temporal_smoothed, max_movement, max_length)
+    
     # unnorm_out = unnormalise_list_2D(xb, max_x, min_x, max_y, min_y,max_x, min_x, max_y, min_y)
     
     # visualise and save

@@ -142,6 +142,7 @@ def sample(last_frames, pi, sigma, mu , variance_div= 100):
     # alpha_idx = adjust_movement_rankings(alpha_idx, valid_ranks=[1])  # Find the index of the second most probable Gaussian component
     # alpha_idx = torch.argmax(alpha_idx, dim=2)
     
+    # get gaussian with max movement
     # Add the last frame of last_frames to the beginning of mu for delta calculation
     extended_mu = torch.cat([last_frames[:, -1, :].unsqueeze(1).expand(-1, G, -1).unsqueeze(1), mu], dim=1)
 
@@ -151,12 +152,19 @@ def sample(last_frames, pi, sigma, mu , variance_div= 100):
     movement_score = torch.sqrt(torch.sum(deltas**2, dim=3))  # [B, T, G]
     # Gather mu and sigma based on the ranked indices
     ranked_movement = torch.argsort(movement_score,dim=2, descending=True)
-    alpha_idx = adjust_movement_rankings(ranked_movement)
+    alpha_idx = adjust_movement_rankings(ranked_movement, valid_ranks=[4])  # Find the index of the  max movement Gaussian component
     alpha_idx = torch.argmax(alpha_idx, dim=2)
+    
+    # get mu of most probable gaussian
     max_alpha_idx = torch.argmax(pi, dim=2)
+    
+    # gather both
     most_prob_mu = mu.gather(2, alpha_idx.unsqueeze(-1).unsqueeze(-1).expand(-1, -1,-1, mu.size(-1)))
     max_mu = mu.gather(2, max_alpha_idx.unsqueeze(-1).unsqueeze(-1).expand(-1, -1,-1, mu.size(-1)))
-    selected_mu = (most_prob_mu + max_mu)/2
+    
+    movement_weight = 0.5
+    # find the midpoint between the two
+    selected_mu = torch.lerp(most_prob_mu, max_mu, movement_weight)
     selected_sigma = sigma.gather(2, alpha_idx.unsqueeze(-1).unsqueeze(-1).expand(-1, -1, -1, sigma.size(-1)))
     selected_sigma = selected_sigma/variance_div
     

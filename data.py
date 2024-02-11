@@ -660,6 +660,32 @@ def smooth_generated_sequence_with_cap(generated_sequence, max_movement, max_len
 
     return smoothed_sequence
 
+import torch
+
+def temporal_smoothing(frames):
+    """
+    Smooth the movements in the frames by averaging every 3 frames.
+    
+    :param frames: Input tensor of shape [B, T, O] where
+                   B is the batch size,
+                   T is the number of timesteps,
+                   O is the number of features per timestep.
+    :return: Smoothed frames with the same shape as input.
+    """
+    B, T, O = frames.shape
+    # Pad the sequence at the start and end to handle boundary conditions
+    padded_frames = torch.nn.functional.pad(frames, (0, 0, 1, 1), mode='replicate')
+    
+    # Initialize an empty tensor for smoothed frames
+    smoothed_frames = torch.zeros_like(frames)
+    
+    # Apply moving average filter
+    for t in range(1, T + 1):
+        smoothed_frames[:, t - 1, :] = (padded_frames[:, t - 1, :] + padded_frames[:, t, :] + padded_frames[:, t + 1, :]) / 3
+    
+    return smoothed_frames
+
+
 
 
 if __name__ == "__main__":
