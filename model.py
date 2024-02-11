@@ -336,7 +336,7 @@ class MotionModel(nn.Module):
                 pi, sigma, mu, logits, emotion_logits, _, _ = self(inputs=cond_sequence, emotions=generated_emotions)
 
                 # CHANGE: Instead of random sampling, use the mean of the most probable component
-                next_values = mdn.sample(pi, sigma, mu, 10)
+                next_values = mdn.sample(cond_sequence,pi, sigma, mu, 10)
                 # next_values = mdn.max_sample(pi, sigma, mu)
                 # next_values = mdn.select_sample(pi, sigma, mu)
         

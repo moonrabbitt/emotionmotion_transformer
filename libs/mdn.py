@@ -133,34 +133,25 @@ def mdn_loss(pi, sigma, mu, target):
     return nll
 
 
-def random_sample(pi, sigma, mu):
-    # pi: Mixing coefficients with shape [B, T, G]
-    # sigma: Standard deviations of the Gaussians [B, T, G, O]
-    # mu: Means of the Gaussians [B, T, G, O]
-    # :return: Sampled values from the MDN
-    
-    categorical = Categorical(pi)
-    mixture_indices = categorical.sample().unsqueeze(-1)  # Add an extra dimension for gather # [B, T, 1]
-    
-    # Gather the chosen mixture components' parameters
-    chosen_sigma = torch.gather(sigma, 2, mixture_indices.unsqueeze(-1).expand(-1, -1, -1, sigma.size(-1)))
-    chosen_mu = torch.gather(mu, 2, mixture_indices.unsqueeze(-1).expand(-1, -1, -1, mu.size(-1)))
-    
-    # Remove the extra G dimension since we have selected the component
-    chosen_sigma = chosen_sigma.squeeze(2)
-    chosen_mu = chosen_mu.squeeze(2)
-    
-    # Sample from the normal distributions
-    normal = torch.distributions.Normal(chosen_mu, chosen_sigma)
-    samples = normal.sample()  # [B, T, O]
-    
-    return samples
 
-
-def sample(pi, sigma, mu , variance_div= 100):
+def sample(last_frames, pi, sigma, mu , variance_div= 100):
+    B, T, G, O = mu.shape
+    
     # CHANGE: Instead of random sampling, use the mean of the most probable component
-    alpha_idx = torch.argsort(pi, dim=2, descending=False)  # Find the index of the most probable Gaussian component
-    alpha_idx = adjust_movement_rankings(alpha_idx, valid_ranks=[1])  # Find the index of the second most probable Gaussian component
+    # alpha_idx = torch.argsort(pi, dim=2, descending=False)  # Find the index of the most probable Gaussian component
+    # alpha_idx = adjust_movement_rankings(alpha_idx, valid_ranks=[1])  # Find the index of the second most probable Gaussian component
+    # alpha_idx = torch.argmax(alpha_idx, dim=2)
+    
+    # Add the last frame of last_frames to the beginning of mu for delta calculation
+    extended_mu = torch.cat([last_frames[:, -1, :].unsqueeze(1).expand(-1, G, -1).unsqueeze(1), mu], dim=1)
+
+    # Calculate deltas (difference in position) for each keypoint across each frame
+    deltas = extended_mu[:, 1:, :, :] - extended_mu[:, :-1, :, :]  # [B, T, G, O]
+    # Movement score for each keypoint
+    movement_score = torch.sqrt(torch.sum(deltas**2, dim=3))  # [B, T, G]
+    # Gather mu and sigma based on the ranked indices
+    ranked_movement = torch.argsort(movement_score,dim=2, descending=True)
+    alpha_idx = adjust_movement_rankings(ranked_movement)
     alpha_idx = torch.argmax(alpha_idx, dim=2)
     max_alpha_idx = torch.argmax(pi, dim=2)
     most_prob_mu = mu.gather(2, alpha_idx.unsqueeze(-1).unsqueeze(-1).expand(-1, -1,-1, mu.size(-1)))
