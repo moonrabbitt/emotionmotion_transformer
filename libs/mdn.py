@@ -159,10 +159,15 @@ def random_sample(pi, sigma, mu):
 
 def sample(pi, sigma, mu , variance_div= 100):
     # CHANGE: Instead of random sampling, use the mean of the most probable component
-    alpha_idx = torch.argmax(pi, dim=2)  # Find the index of the most probable Gaussian component
-    selected_mu = mu.gather(2, alpha_idx.unsqueeze(-1).unsqueeze(-1).expand(-1, -1,-1, mu.size(-1)))
+    alpha_idx = torch.argsort(pi, dim=2, descending=False)  # Find the index of the most probable Gaussian component
+    alpha_idx = adjust_movement_rankings(alpha_idx, valid_ranks=[1])  # Find the index of the second most probable Gaussian component
+    alpha_idx = torch.argmax(alpha_idx, dim=2)
+    max_alpha_idx = torch.argmax(pi, dim=2)
+    most_prob_mu = mu.gather(2, alpha_idx.unsqueeze(-1).unsqueeze(-1).expand(-1, -1,-1, mu.size(-1)))
+    max_mu = mu.gather(2, max_alpha_idx.unsqueeze(-1).unsqueeze(-1).expand(-1, -1,-1, mu.size(-1)))
+    selected_mu = (most_prob_mu + max_mu)/2
     selected_sigma = sigma.gather(2, alpha_idx.unsqueeze(-1).unsqueeze(-1).expand(-1, -1, -1, sigma.size(-1)))
-    selected_sigma = selected_sigma/ variance_div
+    selected_sigma = selected_sigma/variance_div
     
     # print(variance_div)
     # Divide by 100 to reduce the variance of the selected Gaussian I think, Pette et al 2019 did this not sure why
@@ -178,6 +183,26 @@ def sample(pi, sigma, mu , variance_div= 100):
     return next_values
 
 # try sample from all gaussians and see the difference?
+def adjust_movement_rankings(ranked_movement, valid_ranks=[1]):
+    """
+    Adjust movement rankings to only consider specific ranks.
+    
+    :param ranked_movement: The tensor of ranked movement scores [B, T, G].
+    :param valid_ranks: The ranks to consider (e.g., [1, 2]).
+    :return: Adjusted rankings where non-valid ranks are set to -1.
+    """
+    B, T, G = ranked_movement.shape
+    # Initialize a mask with False values
+    valid_mask = torch.zeros_like(ranked_movement, dtype=torch.bool)
+
+    # Set True for valid ranks
+    for rank in valid_ranks:
+        valid_mask |= (ranked_movement == rank)
+
+    # Adjust rankings to set non-valid ranks to -1
+    adjusted_rankings = torch.where(valid_mask, ranked_movement, torch.tensor(-1, device=ranked_movement.device))
+
+    return adjusted_rankings
 
 
 def ranked_scores(last_frames,  pi,sigma, mu):
@@ -206,7 +231,8 @@ def ranked_scores(last_frames,  pi,sigma, mu):
 
     # Gather mu and sigma based on the ranked indices
     ranked_movement = torch.argsort(movement_score,dim=2, descending=True)
-    ranked_noise = torch.argsort(noise_penalty,dim=2, descending=True)
+    ranked_movement = adjust_movement_rankings(ranked_movement)
+    ranked_noise = torch.argsort(noise_penalty,dim=2, descending=False)
     
     scores = ranked_indices + ranked_movement + ranked_noise
     
@@ -229,7 +255,7 @@ def select_and_sample_gaussians(last_frames,pi,sigma,mu, emotion_fc2, attention_
     chosen_sigma = sigma.gather(2, alpha_idx.unsqueeze(-1).unsqueeze(-1).expand(-1, -1, -1, sigma.size(-1)))
     
     # Remove the extra G dimension since we have selected the component
-    chosen_sigma = chosen_sigma.squeeze(2)
+    chosen_sigma = chosen_sigma.squeeze(2)/variance_div
     chosen_mu = chosen_mu.squeeze(2)
     
     # Sample from the normal distributions
@@ -237,16 +263,16 @@ def select_and_sample_gaussians(last_frames,pi,sigma,mu, emotion_fc2, attention_
     
     selected_sample = normal.sample()  # [B, T, O]
     
-    # sample 3 times, get the one that is closest to the input emotion
-    for i in range(3):
-        sample = normal.sample()
-        pooled_sample = attention_pooling(sample)
-        emotion_logits_sample = emotion_fc2(pooled_sample)
-        distance = emotion_distance(emotion_logits_sample, input_emotion_logits)
-        closest_distance = torch.min(closest_distance, distance)
-        mask = distance < closest_distance
-        closest_distance[mask] = distance[mask]
-        selected_sample[mask] = sample[mask]
+    # # sample 3 times, get the one that is closest to the input emotion
+    # for i in range(3):
+    #     sample = normal.sample()
+    #     pooled_sample = attention_pooling(sample)
+    #     emotion_logits_sample = emotion_fc2(pooled_sample)
+    #     distance = emotion_distance(emotion_logits_sample, input_emotion_logits)
+    #     closest_distance = torch.min(closest_distance, distance)
+    #     mask = distance < closest_distance
+    #     closest_distance[mask] = distance[mask]
+    #     selected_sample[mask] = sample[mask]
     
             
     return selected_sample[:, -1, :]

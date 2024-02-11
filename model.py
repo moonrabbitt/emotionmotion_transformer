@@ -336,15 +336,15 @@ class MotionModel(nn.Module):
                 pi, sigma, mu, logits, emotion_logits, _, _ = self(inputs=cond_sequence, emotions=generated_emotions)
 
                 # CHANGE: Instead of random sampling, use the mean of the most probable component
-                # next_values = mdn.sample(pi, sigma, mu, variance)
+                next_values = mdn.sample(pi, sigma, mu, 10)
                 # next_values = mdn.max_sample(pi, sigma, mu)
                 # next_values = mdn.select_sample(pi, sigma, mu)
         
                 # next_values = mdn.sample_dynamic_emotion(pi, sigma, mu, emotion_logits, k=1.0, emotion_weight=1.0)
                 emotion_weight = (1+ (math.cos(normalized_index)))
-                next_values = mdn.select_and_sample_gaussians(cond_sequence,pi,sigma,mu,  self.emotion_fc2, self.attention_pooling, emotion_logits, variance_div=100)
+                # next_values = mdn.select_and_sample_gaussians(cond_sequence,pi,sigma,mu,  self.emotion_fc2, self.attention_pooling, emotion_logits, variance_div=100)
                 
-                next_values = next_values.unsqueeze(1)  # Add a time dimension of 1
+                next_values = next_values  # Add a time dimension of 1
                 
                 
                 # random sample - previous implementation
