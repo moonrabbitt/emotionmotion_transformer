@@ -260,7 +260,9 @@ def generate_new_batch(last_frame=None):
         last_frame = torch.randn(1, 5, 50).to(device)  # Initialize with noise
         init_flag = True  # First Frame
 
-    last_frames = last_frame[0][-3:]
+    
+    window_size = 5
+    last_frames = last_frame[0][-window_size:]
     norm_last_frames = normalise_generated(last_frames, max_x, min_x, max_y, min_y, max_x, min_x, max_y, min_y)
     new_input = torch.tensor([norm_last_frames]).to(device).float()
 
@@ -268,6 +270,7 @@ def generate_new_batch(last_frame=None):
     # Directly convert the NumPy array to a PyTorch tensor
     emotion_in = torch.tensor([shared_average_scores], dtype=torch.float).to(device)
 
+    # print('new_input', new_input)
 
     # Generate the new frames
     generated_keypoints, generated_emotion = m.generate(new_input, emotion_in, FRAMES_GENERATE)
@@ -277,16 +280,22 @@ def generate_new_batch(last_frame=None):
 
     emotion_vectors = (emotion_in, detached_emotion)
 
-    max_movement = 100  # Maximum allowed movement per step
+    max_movement = 80  # Maximum allowed movement per step
     max_length = 300
     unnorm_out =unnormalise_list_2D(detached_keypoints, max_x, min_x, max_y, min_y, max_x, min_x, max_y, min_y)
     if init_flag == False:
         # not first frame
-        smoothed_keypoints = smooth_generated_sequence_with_cap(torch.tensor(unnorm_out, device=device), max_movement, max_length)
-        # print(smoothed_keypoints)
-        # print('smooth')
-        # print(unnorm_out)
-        # print('unormout')
+        # smoothed_keypoints = smooth_generated_sequence_with_cap(torch.tensor(temporal_smoothed, device = device), max_movement, max_length)
+        smoothed_keypoints= temporal_smoothing(torch.tensor(unnorm_out, device=device),  3)
+        smoothed_keypoints= temporal_smoothing(torch.tensor(smoothed_keypoints, device=device),  3)
+        
+        smoothed_keypoints = smooth_generated_sequence_with_cap(torch.tensor(smoothed_keypoints,device=device), max_movement, max_length)
+        
+        
+        
+        
+        
+
     else:
         # first frame
         smoothed_keypoints = unnorm_out
@@ -300,15 +309,20 @@ def generate_batches_periodically(queue, period=2, last_frames=None):
     count = 0
     while True:
         time.sleep(period)
+   
         unnorm_out, emotion_vectors = generate_new_batch(last_frames)
+        # if last_frames is not None:
+        #     print('last batch',last_frames[0][-3:])
+        # print('unnorm_out this batch ',unnorm_out[0][:3])
         print('GENERATED BATCH PUTTING IN QUEUE')
-        for frame in tqdm(unnorm_out[0]):
+        for frame in tqdm(unnorm_out[0][4:]):
             queue.put((frame, emotion_vectors))
         # print(last_frames)
         last_frames = unnorm_out
         count = count + 1
-        if count % 10 == 0: # every 10 batches clear system with noise
+        if count % 20 == 0: # every 10 batches clear system with noise
             last_frames = None
+            
         
 # Function to update the visualisation
 def clear_sprites():
@@ -336,7 +350,7 @@ def update(dt):
             # glsl visuals
             # visualise_body(frame_data, emotion_vectors, max_x, max_y, window,start_time,frame_index)  # Visualize it
             
-            visualise_skeleton([frame_data], max_x, max_y,emotion_vectors, max_frames=500,save = False,save_path=None,prefix=f'',train_seed=train_seed,delta=False,destroy = False)
+            visualise_skeleton([frame_data], max_x, max_y,emotion_vectors, max_frames=2000,save = False,save_path=None,prefix=f'',train_seed=train_seed,delta=False,destroy = False)
             
             frame_index += 1
             # print(frame_index)
@@ -383,7 +397,7 @@ if __name__ == '__main__':
   
     
     # Create the Pyglet window
-    window = pyglet.window.Window(int(max_x) + 50, int(max_y) + 50)
+    # window = pyglet.window.Window(int(max_x) + 50, int(max_y) + 50)
     global_load_images()
     print('WINDOW CREATED')
     

@@ -132,7 +132,7 @@ def mdn_loss(pi, sigma, mu, target):
 
     return nll
 
-
+import random
 
 def sample(last_frames, pi, sigma, mu , variance_div= 100):
     B, T, G, O = mu.shape
@@ -152,7 +152,7 @@ def sample(last_frames, pi, sigma, mu , variance_div= 100):
     movement_score = torch.sqrt(torch.sum(deltas**2, dim=3))  # [B, T, G]
     # Gather mu and sigma based on the ranked indices
     ranked_movement = torch.argsort(movement_score,dim=2, descending=True)
-    alpha_idx = adjust_movement_rankings(ranked_movement, valid_ranks=[4])  # Find the index of the  max movement Gaussian component
+    alpha_idx = adjust_movement_rankings(ranked_movement, valid_ranks=[random.randrange(2,5)])  # Find the index of the  2 to max movement Gaussian component, randrange to give diversity
     alpha_idx = torch.argmax(alpha_idx, dim=2)
     
     # get mu of most probable gaussian

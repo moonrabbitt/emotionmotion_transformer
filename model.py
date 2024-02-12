@@ -588,7 +588,7 @@ def visualise_skeleton(all_frames, max_x, max_y,emotion_vectors=None, max_frames
             x_val = x.item() if torch.is_tensor(x) else x
             y_val = y.item() if torch.is_tensor(y) else y
             cv2.circle(canvas_copy, (int(x_val), int(y_val)), 3, (0, 0, 255), -1)  
-            cv2.putText(canvas_copy, keypointsMapping[i], (int(x_val), int(y_val)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
+            # cv2.putText(canvas_copy, keypointsMapping[i], (int(x_val), int(y_val)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
 
         # Draw connections (limbs) on the canvas
         for limb in limb_connections:
@@ -598,8 +598,9 @@ def visualise_skeleton(all_frames, max_x, max_y,emotion_vectors=None, max_frames
             start_point = (int(x_coords[start_idx]), int(y_coords[start_idx]))
             end_point = (int(x_coords[end_idx]), int(y_coords[end_idx]))
 
-            if start_point == (0,0) or end_point == (0,0) or not sane[start_idx] or not sane[end_idx]:
-                continue
+            # biological sanity check
+            # if start_point == (0,0) or end_point == (0,0) or not sane[start_idx] or not sane[end_idx]:
+            #     continue
             cv2.line(canvas_copy, start_point, end_point, (0, 255, 0), 2)  
         
         # Display the emotion percentages and labels on the top right of the frame
@@ -1138,8 +1139,8 @@ def main(args = None):
     # Example Usage
     max_movement = 80  # Maximum allowed movement per step
     max_length = 500
-    temporal_smoothed = temporal_smoothing(torch.tensor(unnorm_out, device=device))
-    smoothed_keypoints = smooth_generated_sequence_with_cap(temporal_smoothed, max_movement, max_length)
+    temporal_smoothed = temporal_smoothing(torch.tensor(unnorm_out, device=device), 3)
+    smoothed_keypoints = smooth_generated_sequence_with_cap(torch.tensor(temporal_smoothed,device=device), max_movement, max_length)
     
     # unnorm_out = unnormalise_list_2D(xb, max_x, min_x, max_y, min_y,max_x, min_x, max_y, min_y)
     
