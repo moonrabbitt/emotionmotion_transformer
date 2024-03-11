@@ -232,7 +232,9 @@ class MotionModel(nn.Module):
         self.emotion_fc1 = nn.Linear(emotion_dim, hidden_dim, bias=False,device=device)
         self.emotion_dropout = nn.Dropout(0.4)
         self.emotion_fc2 = nn.Sequential(
-            nn.Linear(output_dim, emotion_dim, bias=True),  #The bias allows the layer to shift the output independently of the input.
+            nn.Linear(output_dim, hidden_dim, bias=True),
+            nn.Linear(hidden_dim, hidden_dim, bias=True),
+            nn.Linear(hidden_dim, emotion_dim, bias=True),  #The bias allows the layer to shift the output independently of the input.
             nn.LeakyReLU()).to(device)
         
         self.positional_encoding = positional_encoding(seq_len=blocksize, d_model=hidden_dim).to(device)
@@ -914,8 +916,11 @@ def main(args = None):
     global m
     m = MotionModel(input_dim=frame_dim, output_dim=frame_dim,emotion_dim=7, blocksize=BLOCK_SIZE, hidden_dim=512, n_layers=8, dropout=DROPOUT)
     m = m.to(device)
-    # summary(m, input_size=(BATCH_SIZE, BLOCK_SIZE, frame_dim))
-    
+    print('MODEL SUMMARY:')
+    # print(summary(m, input_size=(BATCH_SIZE, BLOCK_SIZE, frame_dim)))
+    total_params = sum(p.numel() for p in m.parameters())
+    print(f"Total parameters: {total_params}")
+
     
     global train_seed
     
@@ -968,11 +973,11 @@ def main(args = None):
 
     
     # Define  MDN loss scheduling parameters
-    START_WEIGHT = 0.1 # Initial weight of MDN loss
-    MDN_END_WEIGHT = 0.1 # Final weight of MDN loss
+    START_WEIGHT = 0 # Initial weight of MDN loss
+    MDN_END_WEIGHT = 1 # Final weight of MDN loss
     EMOTION_END_WEIGHT = 1 # Final weight of emotion loss
     RAMP_EPOCHS = 100000 # Number of epochs over which to increase weight
-    START_AFTER_MDN  = 150000 # Number of epochs to wait before starting to increase weight
+    START_AFTER_MDN  = 40000 # Number of epochs to wait before starting to increase weight
     START_AFTER_EMOTION = 70000
     
     
@@ -1172,11 +1177,11 @@ if __name__ == "__main__":
         BLOCK_SIZE=16,
         DROPOUT=0.2,
         LEARNING_RATE=0.0001,
-        EPOCHS=400000,
+        EPOCHS=302000,
         FRAMES_GENERATE=300,
-        TRAIN=False,
+        TRAIN=True,
         EVAL_EVERY=1000,
-        CHECKPOINT_PATH="checkpoints/proto10_checkpoint.pth",
+        CHECKPOINT_PATH="checkpoints/proto10_checkpoint_scheduled.pth",
         L1_LAMBDA=None,
         L2_REG=0.0,
         FINETUNE=False,
@@ -1189,8 +1194,11 @@ if __name__ == "__main__":
         DATASET = "all",
         
         # NOTES---------------------------------
-        notes = f"""Proto10- # adding more dance data to help give model more diversity, hopefully it'll be less stuck
-        Emotion loss * 2
+        notes = f"""Proto10 scheduled- # adding more dance data to help give model more diversity, hopefully it'll be less stuck
+        
+        
+        ramp at 20k
+        
         
         switched dropout and attention pooling
         
