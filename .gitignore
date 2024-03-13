@@ -12,6 +12,7 @@ runs/
 *.avi
 *.png
 *.obj
+*.pdf
 # C extensions
 *.so
 

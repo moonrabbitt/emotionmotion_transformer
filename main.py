@@ -293,8 +293,6 @@ def generate_new_batch(last_frame=None):
         
         
         
-        
-        
 
     else:
         # first frame
