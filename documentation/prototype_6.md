@@ -1,8 +1,10 @@
 # Prototype 6
 
-## Refactoring and Code Optimization
+## Week 12 & 13
 
-At the beginning of this week, I took significant steps to refactor the code from a notebook into several script files. This reorganization was aimed at facilitating easier development and debugging. You can explore the evolution of this process through my git commit history.
+## Refactoring and Code Optimisation
+
+At the beginning of this week, I took significant steps to refactor the code from a notebook into several script files. This reorganisation was aimed at facilitating easier development and debugging. You can explore the evolution of this process through my git commit history.
 
 Access the full code for Prototype 6 [here](https://github.com/moonrabbitt/emotionmotion_transformer/tree/prototypes_inter).
 
@@ -12,19 +14,19 @@ This week's focus was on mitigating the static nature of the model by implementi
 
 ### Observing Model Limitations
 
-The model frequently defaulted to intermediate movements like rocking or standing still, evident in its outputs [here](FILL IN HERE). This issue became more pronounced when implementing the model in a live video feed [here](FILL IN HERE). The potential cause of this issue might be the uncoupling of emotion from motion in the live loop, as opposed to validation test sets where they are coupled. This leads the model to favor intermediate movements, resulting in a lack of dynamism.
+The model frequently defaulted to intermediate movements like rocking or standing still, evident in its outputs. This issue became more pronounced when implementing the model in a live video feed. The potential cause of this issue might be the uncoupling of emotion from motion in the live loop, as opposed to validation test sets where they are coupled. This leads the model to favor intermediate movements, resulting in a lack of dynamism.
 
-### Implementing L1/L2 Normalization
+### Implementing L1/L2 Normalisation
 
-To combat overfitting, I experimented with L1 (Lasso) and L2 (Ridge) regularization techniques. These methods add penalties to the model's loss function based on the coefficients' magnitudes, theoretically encouraging it to learn more varied and dynamic patterns. However, this approach led to the model freezing entirely, as shown [here](FILL HERE).
+To combat overfitting, I experimented with L1 (Lasso) and L2 (Ridge) regularisation techniques. These methods add penalties to the model's loss function based on the coefficients' magnitudes, theoretically encouraging it to learn more varied and dynamic patterns. However, this approach led to the model freesing entirely.
 
-### Penalizing Small Movements
+### Penalising Small Movements
 
-Next, I attempted to penalize small movements by adjusting the loss function to inversely relate to the cumulative delta between frames. This technique, though, resulted in increased jitteriness without significantly enhancing emotionally relevant motions. Even after averaging the cumulative delta over batches, the desired outcome of more dynamic motion was not achieved.
+Next, I attempted to penalise small movements by adjusting the loss function to inversely relate to the cumulative delta between frames. This technique, though, resulted in increased jitteriness without significantly enhancing emotionally relevant motions. Even after averaging the cumulative delta over batches, the desired outcome of more dynamic motion was not achieved.
 
-### Exploring Penalization Masks
+### Exploring Penalisation Masks
 
-Another approach was to apply a penalization mask during training for deltas below a certain threshold. The aim was to subtly improve motion without sacrificing smoothness. Unfortunately, this technique also fell short of expectations, as seen [here](FILL HERE).
+Another approach was to apply a penalisation mask during training for deltas below a certain threshold. The aim was to subtly improve motion without sacrificing smoothness. Unfortunately, this technique also fell short of expectations.
 
 ### Considering Mixture Density Networks (MDN)
 
