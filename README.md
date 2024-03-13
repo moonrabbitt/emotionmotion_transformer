@@ -5,6 +5,9 @@ This repository contains the EmotionMotion Interactive Transformer+MDN multimoda
 
 This innovative system integrates real-time emotional feedback from YouTube live chat into interactive performance art. The art is then rebroadcast on the same YouTube live stream, creating a closed loop with OBS Studio. Leveraging affective computing datasets, the system processes chat sentiment to shape the motion and narrative of the resulting artwork.
 
+The architecture of the model is shown below: 
+![model architecture](https://github.com/moonrabbitt/emotionmotion_transformer/blob/main/data/Dissertation%20-%20Figure%20X_%20Architecture%20Transformer%20and%20MDN%20(2).jpg)
+
 You will need OBS to be able to stream it back to YouTube, but it is not necessary for the project to run.
 
 A short video showing the project's process and final outcome can be seen here: https://www.youtube.com/watch?v=bC6bmK3HHys 
