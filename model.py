@@ -232,9 +232,10 @@ class MotionModel(nn.Module):
         self.emotion_fc1 = nn.Linear(emotion_dim, hidden_dim, bias=False,device=device)
         self.emotion_dropout = nn.Dropout(0.4)
         self.emotion_fc2 = nn.Sequential(
+            # nn.Linear(output_dim, emotion_dim, bias=True),
             nn.Linear(output_dim, hidden_dim, bias=True),
             nn.Linear(hidden_dim, hidden_dim, bias=True),
-            nn.Linear(hidden_dim, emotion_dim, bias=True),  #The bias allows the layer to shift the output independently of the input.
+            nn.Linear(hidden_dim, emotion_dim, bias=True),#The bias allows the layer to shift the output independently of the input.
             nn.LeakyReLU()).to(device)
         
         self.positional_encoding = positional_encoding(seq_len=blocksize, d_model=hidden_dim).to(device)
